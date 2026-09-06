@@ -1,0 +1,1 @@
+import { ProductForm } from '@/components/ProductForm'; export default function NewProduct(){return <main className="shell py-12"><p className="eyebrow">Catalog</p><h1 className="display mt-2 text-5xl">Add product</h1><ProductForm /></main>}

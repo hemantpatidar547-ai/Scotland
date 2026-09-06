@@ -1,0 +1,2 @@
+import Link from 'next/link';
+export default function Orders(){return <main className="shell py-12"><h1 className="display text-5xl">My orders</h1><div className="mt-9 bg-white p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><p className="eyebrow">Order SC-10258 · 18 Aug 2026</p><h2 className="mt-2 font-semibold">Edinburgh Weekender</h2><p className="mt-2 text-sm text-zinc-600">Status: Processing</p></div><Link href="/account/orders/SC-10258" className="button-outline">View order</Link></div></div></main>}

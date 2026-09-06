@@ -4,16 +4,21 @@ import type { CookieSerializeOptions } from 'cookie';
 
 type CookieToSet = { name: string; value: string; options: Partial<CookieSerializeOptions> };
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
 export function createClient ( request: NextRequest )
 {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+
+    if ( !supabaseUrl || !supabaseKey )
+    {
+        throw new Error( 'Supabase middleware environment variables are missing.' );
+    }
+
     let supabaseResponse = NextResponse.next( {
         request: { headers: request.headers }
     } );
 
-    const supabase = createServerClient( supabaseUrl!, supabaseKey!, {
+    const supabase = createServerClient( supabaseUrl, supabaseKey, {
         cookies: {
             getAll ()
             {

@@ -3,9 +3,21 @@ import { createClient } from '@/utils/supabase/middleware';
 
 export async function middleware ( request: NextRequest )
 {
-    const { supabase, supabaseResponse } = createClient( request );
-    await supabase.auth.getUser();
-    return supabaseResponse;
+    if ( !process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY )
+    {
+        return NextResponse.next();
+    }
+
+    try
+    {
+        const { supabase, supabaseResponse } = createClient( request );
+        await supabase.auth.getUser();
+        return supabaseResponse;
+    } catch ( error )
+    {
+        console.error( 'Supabase middleware error:', error );
+        return NextResponse.next();
+    }
 }
 
 export const config = {

@@ -1,16 +1,16 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { products } from '@/lib/products';
+import { getAllProducts } from '@/lib/data';
 import { ProductCard } from '@/components/ProductCard';
 import { ItalianComboOutfits } from '@/components/ItalianComboOutfits';
 import { RotatingHeroSection } from '@/components/RotatingHeroSection';
 
 const categoryTiles = [
-  ['Shirts', 'Oxford, camp collar & boxy shirts'], ['T-shirts', 'Heavyweight, fitted & relaxed tees'],
-  ['Trousers', 'Formal, pleated & relaxed pants'], ['Jeans', 'Straight, wide-leg & selvedge denim'],
-  ['Bootcut pants', 'Tailored flare silhouettes'], ['Shorts', 'Easy summer & utility shorts'],
-  ['Shoes', 'Sneakers, loafers & formal shoes'], ['Boots', 'Leather, hiking & city boots'],
-  ['Jackets', 'Denim, field & tailored layers'], ['Bags & extras', 'Watches, belts, bags and scarves'],
+  [ 'Shirts', 'Oxford, camp collar & boxy shirts' ], [ 'T-shirts', 'Heavyweight, fitted & relaxed tees' ],
+  [ 'Trousers', 'Formal, pleated & relaxed pants' ], [ 'Jeans', 'Straight, wide-leg & selvedge denim' ],
+  [ 'Bootcut pants', 'Tailored flare silhouettes' ], [ 'Shorts', 'Easy summer & utility shorts' ],
+  [ 'Shoes', 'Sneakers, loafers & formal shoes' ], [ 'Boots', 'Leather, hiking & city boots' ],
+  [ 'Jackets', 'Denim, field & tailored layers' ], [ 'Bags & extras', 'Watches, belts, bags and scarves' ],
 ];
 
 const heroImages = [
@@ -32,20 +32,22 @@ const heroImages = [
   }
 ];
 
-export default function Home() {
+export default async function Home ()
+{
+  const products = await getAllProducts();
   return <main>
-    <RotatingHeroSection images={heroImages} autoRotateInterval={5000} />
+    <RotatingHeroSection images={ heroImages } autoRotateInterval={ 5000 } />
 
     <ItalianComboOutfits />
 
     <section className="shell py-20">
       <div className="flex items-end justify-between"><div><p className="eyebrow">Find your category</p><h2 className="display mt-3 text-4xl">A fuller wardrobe.</h2></div><Link className="eyebrow border-b border-navy pb-1" href="/shop">Shop all categories</Link></div>
-      <div className="mt-8 grid border-l border-t border-stone sm:grid-cols-2 lg:grid-cols-5">{categoryTiles.map(([title, sub], index) => <Link href="/shop" key={title} className={`group min-h-36 border-b border-r border-stone p-5 transition hover:bg-navy hover:text-white ${index === 0 ? 'bg-[#e7e1d5]' : ''}`}><span className="font-mono text-[10px] text-gold">0{index + 1}</span><h3 className="mt-5 font-display text-2xl leading-none">{title}</h3><p className="mt-2 text-xs leading-5 opacity-65">{sub}</p><span className="mt-3 block text-xs transition group-hover:translate-x-1">Explore →</span></Link>)}</div>
+      <div className="mt-8 grid border-l border-t border-stone sm:grid-cols-2 lg:grid-cols-5">{ categoryTiles.map( ( [ title, sub ], index ) => <Link href="/shop" key={ title } className={ `group min-h-36 border-b border-r border-stone p-5 transition hover:bg-navy hover:text-white ${ index === 0 ? 'bg-[#e7e1d5]' : '' }` }><span className="font-mono text-[10px] text-gold">0{ index + 1 }</span><h3 className="mt-5 font-display text-2xl leading-none">{ title }</h3><p className="mt-2 text-xs leading-5 opacity-65">{ sub }</p><span className="mt-3 block text-xs transition group-hover:translate-x-1">Explore →</span></Link> ) }</div>
     </section>
 
     <section className="shell py-20">
       <div className="flex items-end justify-between"><div><p className="eyebrow">New season</p><h2 className="display mt-3 text-4xl">New arrivals</h2></div><Link className="eyebrow border-b border-navy pb-1" href="/shop">View all pieces</Link></div>
-      <div className="mt-9 grid grid-cols-2 gap-4 md:grid-cols-4">{products.slice(0, 4).map(product => <ProductCard key={product.id} product={product} />)}</div>
+      <div className="mt-9 grid grid-cols-2 gap-4 md:grid-cols-4">{ products.slice( 0, 4 ).map( product => <ProductCard key={ product.id } product={ product } /> ) }</div>
     </section>
 
     <section className="grid bg-navy text-white lg:grid-cols-2">

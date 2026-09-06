@@ -29,6 +29,14 @@ export function ProductForm ()
 
         const formData = new FormData( e.currentTarget );
         const name = formData.get( 'name' ) as string;
+        const description = ( formData.get( 'description' ) as string ).trim();
+
+        if ( description.length < 10 )
+        {
+            alert( 'Description must contain at least 10 characters.' );
+            setLoading( false );
+            return;
+        }
 
         const rawData = {
             name,
@@ -36,7 +44,7 @@ export function ProductForm ()
             sku: formData.get( 'sku' ) as string,
             category: formData.get( 'category' ) as string,
             price: Number( formData.get( 'price' ) ),
-            description: formData.get( 'description' ) as string,
+            description,
             stock_quantity: Number( formData.get( 'stock' ) ),
             image: imageBase64 // send base64 string to database
         };
@@ -50,7 +58,7 @@ export function ProductForm ()
             } );
             if ( res.ok )
             {
-                alert( 'Product with IMAGE saved to MongoDB successfully! 🚀' );
+                alert( 'Product with image saved to Supabase successfully.' );
                 router.push( '/admin/products' );
             } else
             {
@@ -80,13 +88,13 @@ export function ProductForm ()
                 </label>
                 <label className="text-xs">Price<input name="price" required min="1" type="number" className="input mt-2" placeholder="7490" /></label>
             </div>
-            <label className="block text-xs">Description<textarea name="description" required className="input mt-2 min-h-28" placeholder="Product description" /></label>
+            <label className="block text-xs">Description<textarea name="description" required minLength={ 10 } className="input mt-2 min-h-28" placeholder="At least 10 characters" /></label>
             <div className="grid gap-4 sm:grid-cols-2">
                 <label className="text-xs">Initial stock<input name="stock" className="input mt-2" type="number" min="0" placeholder="20" required /></label>
             </div>
 
             <label className="block rounded border border-dashed border-stone p-6 text-center text-xs text-zinc-500">
-                Upload Product Image (will be saved in MongoDB)
+                Upload Product Image (will be saved in Supabase)
                 { imageBase64 && <img src={ imageBase64 } alt="Preview" className="mx-auto mt-4 h-32 object-contain" /> }
                 <input type="file" onChange={ handleImageChange } className="mt-3 block w-full" accept="image/*" />
             </label>

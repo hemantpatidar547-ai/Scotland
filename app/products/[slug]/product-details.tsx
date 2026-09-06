@@ -37,6 +37,7 @@ export function ProductDetails({ product }: { product: Product }) {
                 className="object-cover"
                 sizes="(max-width:1024px) 100vw, 40vw"
                 priority={i === 0}
+                unoptimized={src.startsWith('data:')}
               />
             </div>
           ))}
@@ -49,10 +50,10 @@ export function ProductDetails({ product }: { product: Product }) {
           </p>
 
           <div className="mt-2 flex items-start justify-between">
-            <h1 className="display text-3xl sm:text-4xl leading-tight">{product.name}</h1>
+            <h1 className="display min-w-0 text-3xl leading-tight sm:text-4xl">{product.name}</h1>
             <button
               onClick={() => toggleFavorite(product.id)}
-              className="text-2xl flex-shrink-0"
+              className="ml-3 shrink-0 p-1 text-2xl"
             >
               {favorites.includes(product.id) ? '♥' : '♡'}
             </button>

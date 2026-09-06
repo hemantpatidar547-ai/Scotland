@@ -5,6 +5,11 @@ export async function GET ()
 {
     try
     {
+        if ( !clientPromise )
+        {
+            return NextResponse.json( { success: false, message: 'MongoDB is not configured.' }, { status: 503 } );
+        }
+
         const client = await clientPromise;
         const db = client.db( 'scotland' ); // Connects to the 'scotland' database
 

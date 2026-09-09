@@ -4,12 +4,13 @@ import path from 'path';
 
 export async function GET (
     request: Request,
-    { params }: { params: { path: string[] } }
+    context: { params: Promise<{ path: string[] }> }
 )
 {
     try
     {
-        const filePath = path.join( process.cwd(), 'assests', ...params.path );
+        const { path: routePath } = await context.params;
+        const filePath = path.join( process.cwd(), 'assests', ...routePath );
 
         if ( !fs.existsSync( filePath ) )
         {

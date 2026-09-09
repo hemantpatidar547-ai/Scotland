@@ -45,9 +45,9 @@ export default async function Home ()
       <div className="mt-8 grid border-l border-t border-stone sm:grid-cols-2 lg:grid-cols-5">{ categoryTiles.map( ( [ title, sub ], index ) => <Link href="/shop" key={ title } className={ `group min-h-36 border-b border-r border-stone p-5 transition hover:bg-navy hover:text-white ${ index === 0 ? 'bg-[#e7e1d5]' : '' }` }><span className="font-mono text-[10px] text-gold">0{ index + 1 }</span><h3 className="mt-5 font-display text-2xl leading-none">{ title }</h3><p className="mt-2 text-xs leading-5 opacity-65">{ sub }</p><span className="mt-3 block text-xs transition group-hover:translate-x-1">Explore →</span></Link> ) }</div>
     </section>
 
-    <section className="shell py-20">
+    <section className="shell py-12">
       <div className="flex items-end justify-between"><div><p className="eyebrow">New season</p><h2 className="display mt-3 text-4xl">New arrivals</h2></div><Link className="eyebrow border-b border-navy pb-1" href="/shop">View all pieces</Link></div>
-      <div className="mt-9 grid grid-cols-2 gap-4 md:grid-cols-4">{ products.slice( 0, 4 ).map( product => <ProductCard key={ product.id } product={ product } /> ) }</div>
+      <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">{ products.slice( 0, 4 ).map( product => <ProductCard key={ product.id } product={ product } /> ) }</div>
     </section>
 
     <section className="grid bg-navy text-white lg:grid-cols-2">

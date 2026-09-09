@@ -1,5 +1,5 @@
 import clientPromise from '@/lib/mongodb';
-import { products as staticProducts } from '@/lib/products';
+import { products as fallbackProducts } from '@/lib/products';
 import { Product } from '@/types/product';
 import { createClient } from '@supabase/supabase-js';
 
@@ -41,6 +41,9 @@ function formatSupabaseProduct ( product: any ): Product
 
 export async function getAllProducts ()
 {
+    const fallbackNewProducts = fallbackProducts.filter( product => product.isNew );
+
+    /* 
     if ( supabase )
     {
         const { data: supabaseProducts, error } = await supabase
@@ -48,15 +51,19 @@ export async function getAllProducts ()
             .select( '*, product_variants(*), product_images(*)' )
             .eq( 'status', 'active' );
 
-        if ( !error && supabaseProducts )
+        if ( !error && supabaseProducts && supabaseProducts.length > 0 )
         {
-            return [ ...supabaseProducts.map( formatSupabaseProduct ), ...staticProducts ];
+            const supabaseFormatted = supabaseProducts
+                .map( formatSupabaseProduct )
+                .filter( product => product.isNew );
+            return [ ...fallbackNewProducts, ...supabaseFormatted ];
         }
     }
+    */
 
     if ( !clientPromise )
     {
-        return staticProducts;
+        return fallbackNewProducts;
     }
 
     try
@@ -64,6 +71,11 @@ export async function getAllProducts ()
         const client = await clientPromise;
         const db = client.db( 'scotland' );
         const mongoProducts = await db.collection( 'products' ).find( {} ).toArray();
+
+        if ( mongoProducts.length === 0 )
+        {
+            return fallbackNewProducts;
+        }
 
         const formattedMongoProducts: Product[] = mongoProducts.map( p => ( {
             id: p._id.toString(),
@@ -87,13 +99,23 @@ export async function getAllProducts ()
             price: Number( p.price )
         } ) );
 
-        // Combine MongoDB products with static catalog (Mongo products first)
-        return [ ...formattedMongoProducts, ...staticProducts ];
+        return [ ...fallbackNewProducts, ...formattedMongoProducts.filter( product => product.isNew ) ];
     } catch ( error )
     {
         console.error( "Error fetching MongoDB products:", error );
-        return staticProducts;
+        return fallbackNewProducts;
     }
+}
+
+export async function getAdminProducts ()
+{
+    if ( !supabase ) return [];
+
+    const { data: supabaseProducts, error } = await supabase
+        .from( 'products' )
+        .select( '*, product_variants(*), product_images(*)' );
+
+    return !error && supabaseProducts ? supabaseProducts.map( formatSupabaseProduct ) : [];
 }
 
 export async function getProductBySlug ( slug: string )

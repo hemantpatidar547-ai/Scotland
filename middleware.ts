@@ -11,7 +11,43 @@ export async function middleware ( request: NextRequest )
     try
     {
         const { supabase, supabaseResponse } = createClient( request );
-        await supabase.auth.getUser();
+        const { data: { user } } = await supabase.auth.getUser();
+
+        const path = request.nextUrl.pathname;
+
+        // Admin panel protection
+        if ( path.startsWith( '/admin' ) )
+        {
+            if ( !user )
+            {
+                const url = request.nextUrl.clone();
+                url.pathname = '/login';
+                url.searchParams.set( 'redirect', path );
+                return NextResponse.redirect( url );
+            } else if ( user.email !== 'patidarhemant226@gmail.com' )
+            {
+                // Not authorized as admin
+                const url = request.nextUrl.clone();
+                url.pathname = '/';
+                return NextResponse.redirect( url );
+            }
+        }
+
+        if ( !user && ( path.startsWith( '/checkout' ) || path.startsWith( '/account' ) ) )
+        {
+            const url = request.nextUrl.clone();
+            url.pathname = '/login';
+            url.searchParams.set( 'redirect', path );
+            return NextResponse.redirect( url );
+        }
+
+        if ( user && path === '/login' )
+        {
+            const url = request.nextUrl.clone();
+            url.pathname = '/';
+            return NextResponse.redirect( url );
+        }
+
         return supabaseResponse;
     } catch ( error )
     {

@@ -1,3 +1,8 @@
-'use client';
-import { products } from '@/lib/products'; import { ProductCard } from '@/components/ProductCard'; import { useStore } from '@/components/StoreProvider'; import Link from 'next/link';
-export default function Wishlist(){const {favorites}=useStore();const items=products.filter(x=>favorites.includes(x.id));return <main className="shell py-12"><h1 className="display text-5xl">Wishlist</h1>{items.length?<div className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">{items.map(x=><ProductCard key={x.id} product={x}/>)}</div>:<div className="mt-10 bg-white p-12 text-center"><p>No saved pieces yet.</p><Link className="button mt-5" href="/shop">Explore the collection</Link></div>}</main>}
+import { getAllProducts } from '@/lib/data';
+import { WishlistProducts } from '@/components/WishlistProducts';
+
+export default async function Wishlist ()
+{
+	const products = await getAllProducts();
+	return <main className="shell py-12"><h1 className="display text-5xl">Wishlist</h1><WishlistProducts products={ products } /></main>;
+}

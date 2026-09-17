@@ -18,4 +18,4 @@ Multi-page Next.js App Router ecommerce foundation based on `scot.md`.
 
 ## Production integration
 
-The current catalog is intentionally dummy data in `lib/products.ts`, so the site works immediately. Move it to Supabase tables from `scot.md`, then add Supabase Auth middleware/RLS, Storage uploads and the Razorpay SDK/webhook before accepting live payments. Razorpay secrets must remain server-only in `.env.local`.
+The catalog is loaded from the configured database. Keep Supabase credentials and payment secrets server-side in `.env.local`.

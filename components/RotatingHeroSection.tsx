@@ -44,20 +44,26 @@ export function RotatingHeroSection({
   return (
     <section className="relative flex min-h-[560px] items-center overflow-hidden text-white sm:min-h-[620px]">
       {/* Image Container with Rotation */}
-      <div className="absolute inset-0">
+      <div className="absolute inset-0 z-0">
         {images.map((image, index) => (
           <div
             key={index}
-            className={`absolute inset-0 transition-opacity duration-500 ${
+            className={`absolute inset-0 z-0 transition-opacity duration-500 ${
               index === currentImageIndex ? 'opacity-100' : 'opacity-0'
             }`}
+            style={{
+              backgroundImage: `url("${image.src}")`,
+              backgroundPosition: 'center center',
+              backgroundSize: 'cover',
+            }}
           >
             <Image
               src={image.src}
               alt={image.alt}
               fill
               priority={index === 0}
-              className="object-cover object-center brightness-[.52]"
+              unoptimized
+              className="object-cover object-center brightness-[.65] sm:brightness-[.52]"
               sizes="100vw"
             />
           </div>
@@ -65,7 +71,7 @@ export function RotatingHeroSection({
       </div>
 
       {/* Gradient Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-r from-navy/55 via-navy/15 to-transparent" />
+      <div className="absolute inset-0 z-[1] bg-gradient-to-r from-navy/45 via-navy/10 to-transparent" />
 
       {/* Content */}
       <div className="shell relative z-10 -translate-y-4 py-16 sm:-translate-y-12 sm:py-20">

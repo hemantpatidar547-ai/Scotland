@@ -1,37 +1,218 @@
-import { z } from 'zod';
 import { NextResponse } from 'next/server';
-import { createProduct } from '@/backend/products/create-product';
+import { supabaseAdmin } from '@/lib/supabase/server';
 
-const schema = z.object( {
-    name: z.string().min( 2 ),
-    slug: z.string().min( 2 ),
-    description: z.string().trim().min( 10 ),
-    sku: z.string().min( 2 ),
-    price: z.number().positive(),
-    category: z.string().optional(),
-    stock_quantity: z.number().int().min( 0 ).default( 0 ),
-    image: z.string().nullable().optional()
-} );
+type ProductPayload = {
+    name?: string;
+    slug?: string;
+    sku?: string;
+    description?: string;
+    short_description?: string;
+    category?: string;
+    subcategory?: string;
+    gender?: string;
+    styleOrigin?: string;
+    occasion?: string;
+    season?: string;
+    material?: string;
+    mrp?: number;
+    price?: number;
+    salePrice?: number;
+    cost_price?: number | null;
+    discount?: number;
+    gst?: string;
+    sizes?: string[];
+    colors?: string[];
+    stock_quantity?: number;
+    low_stock_alert?: number;
+    stock_status?: string;
+    image?: string;
+    images?: string[];
+    size_chart?: string | null;
+    fabric?: string;
+    fit?: string;
+    pattern?: string;
+    sleeve?: string;
+    collar?: string;
+    weight?: string;
+    dimensions?: string;
+    cod?: boolean;
+    seo_title?: string;
+    meta_description?: string;
+    tags?: string[];
+    status?: 'draft' | 'published';
+    featured?: boolean;
+    isNew?: boolean;
+    best_seller?: boolean;
+};
 
 export async function POST ( request: Request )
 {
-    try
+    if ( !supabaseAdmin )
     {
-        const json = await request.json();
-        const input = schema.safeParse( json );
+        return NextResponse.json(
+            { error: 'Supabase is not configured. Add NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.' },
+            { status: 503 }
+        );
+    }
 
-        if ( !input.success )
+    const payload = await request.json() as ProductPayload;
+    if ( !payload.name || !payload.slug || !payload.sku || !payload.description )
+    {
+        return NextResponse.json( { error: 'Name, slug, SKU, and description are required.' }, { status: 400 } );
+    }
+
+    const normalizedSku = payload.sku.trim().toUpperCase();
+    const { data: existingSku, error: skuLookupError } = await supabaseAdmin
+        .from( 'products' )
+        .select( 'id' )
+        .eq( 'sku', normalizedSku )
+        .maybeSingle();
+
+    if ( skuLookupError )
+    {
+        return NextResponse.json( { error: 'Could not validate SKU. Please try again.' }, { status: 503 } );
+    }
+
+    if ( existingSku )
+    {
+        return NextResponse.json( { error: `SKU ${ normalizedSku } already exists. Use a unique SKU.` }, { status: 409 } );
+    }
+
+    const baseSlug = ( payload.slug || payload.name )
+        .trim()
+        .toLowerCase()
+        .replace( /[^a-z0-9]+/g, '-' )
+        .replace( /(^-|-$)/g, '' );
+    let uniqueSlug = baseSlug;
+    const { data: existingSlug, error: slugLookupError } = await supabaseAdmin
+        .from( 'products' )
+        .select( 'id' )
+        .eq( 'slug', uniqueSlug )
+        .maybeSingle();
+
+    if ( slugLookupError )
+    {
+        return NextResponse.json( { error: 'Could not validate product URL. Please try again.' }, { status: 503 } );
+    }
+
+    if ( existingSlug )
+    {
+        uniqueSlug = `${ baseSlug }-${ normalizedSku.toLowerCase().replace( /[^a-z0-9]+/g, '-' ) }`;
+        const { data: duplicateSlug } = await supabaseAdmin.from( 'products' ).select( 'id' ).eq( 'slug', uniqueSlug ).maybeSingle();
+        if ( duplicateSlug )
         {
-            return NextResponse.json( { error: input.error.flatten() }, { status: 400 } );
+            return NextResponse.json( { error: `A product with this name and SKU already exists. Use a different SKU.` }, { status: 409 } );
+        }
+    }
+
+    let categoryId: string | null = null;
+    if ( payload.category?.trim() )
+    {
+        const categoryName = payload.category.trim();
+        const categorySlug = categoryName.toLowerCase().replace( /[^a-z0-9]+/g, '-' ).replace( /(^-|-$)/g, '' );
+        const { data: existingCategory, error: categoryLookupError } = await supabaseAdmin
+            .from( 'categories' )
+            .select( 'id' )
+            .eq( 'slug', categorySlug )
+            .maybeSingle();
+
+        if ( categoryLookupError )
+        {
+            return NextResponse.json( { error: 'Could not validate category. Please try again.' }, { status: 503 } );
         }
 
-        const result = await createProduct( input.data );
-        return result.data
-            ? NextResponse.json( result, { status: result.status } )
-            : NextResponse.json( { error: result.error }, { status: result.status } );
-    } catch ( error: any )
-    {
-        console.error( 'Supabase product insert error:', error );
-        return NextResponse.json( { error: error.message }, { status: 500 } );
+        if ( existingCategory )
+        {
+            categoryId = existingCategory.id;
+        }
+        else
+        {
+            const { data: createdCategory, error: categoryCreateError } = await supabaseAdmin
+                .from( 'categories' )
+                .insert( { name: categoryName, slug: categorySlug, is_active: true } )
+                .select( 'id' )
+                .single();
+
+            if ( categoryCreateError || !createdCategory )
+            {
+                return NextResponse.json( { error: categoryCreateError?.message || 'Could not create category.' }, { status: 400 } );
+            }
+            categoryId = createdCategory.id;
+        }
     }
+
+    const productInsert = {
+        name: payload.name,
+        slug: uniqueSlug,
+        description: payload.description,
+        short_description: payload.short_description || payload.description,
+        category_id: categoryId,
+        brand_name: 'SCOTLAND',
+        gender: payload.gender === 'Men' || payload.gender === 'Women' ? payload.gender : 'Unisex',
+        style_origin: payload.styleOrigin,
+        occasion: payload.occasion,
+        season: payload.season,
+        material: payload.material,
+        price: payload.price || 0,
+        sale_price: payload.salePrice || payload.price || null,
+        cost_price: payload.cost_price || null,
+        tax_percentage: Number.parseFloat( payload.gst || '0' ) || 0,
+        sku: normalizedSku,
+        status: payload.status === 'published' ? 'active' : 'draft',
+        is_featured: Boolean( payload.featured ),
+        is_new_arrival: Boolean( payload.isNew ),
+        is_best_seller: Boolean( payload.best_seller ),
+        is_on_sale: Boolean( payload.mrp && payload.salePrice && payload.salePrice < payload.mrp ),
+    };
+
+    const { data: product, error: productError } = await supabaseAdmin
+        .from( 'products' )
+        .insert( productInsert )
+        .select( 'id' )
+        .single();
+
+    if ( productError || !product )
+    {
+        return NextResponse.json( { error: productError?.message || 'Could not save product.' }, { status: 400 } );
+    }
+
+    const colors = payload.colors?.length ? payload.colors : [ 'Default' ];
+    const sizes = payload.sizes?.length ? payload.sizes : [ 'One size' ];
+    const variants = colors.flatMap( color => sizes.map( size => ( {
+        product_id: product.id,
+        sku: `${ payload.sku }-${ color }-${ size }`.replace( /[^a-zA-Z0-9-]/g, '-' ),
+        color,
+        size,
+        price: payload.price || 0,
+        sale_price: payload.salePrice || payload.price || null,
+        stock_quantity: payload.stock_quantity || 0,
+    } ) ) );
+
+    const { error: variantsError } = await supabaseAdmin.from( 'product_variants' ).insert( variants );
+    if ( variantsError )
+    {
+        await supabaseAdmin.from( 'products' ).delete().eq( 'id', product.id );
+        return NextResponse.json( { error: variantsError.message }, { status: 400 } );
+    }
+
+    const imageUrls = [ ...( payload.image ? [ payload.image ] : [] ), ...( payload.images || [] ).filter( image => image !== payload.image ) ];
+    if ( imageUrls.length )
+    {
+        const { error: imagesError } = await supabaseAdmin.from( 'product_images' ).insert(
+            imageUrls.map( ( image_url, index ) => ( {
+                product_id: product.id,
+                image_url,
+                alt_text: payload.name,
+                display_order: index,
+                is_primary: index === 0,
+            } ) )
+        );
+        if ( imagesError )
+        {
+            await supabaseAdmin.from( 'products' ).delete().eq( 'id', product.id );
+            return NextResponse.json( { error: imagesError.message }, { status: 400 } );
+        }
+    }
+
+    return NextResponse.json( { data: { id: product.id }, message: 'Product saved to Supabase.' }, { status: 201 } );
 }

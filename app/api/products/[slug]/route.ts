@@ -1,1 +1,0 @@
-import { getProductBySlug } from '@/lib/data'; export async function GET(_:Request,{params}:{params:Promise<{slug:string}>}){const product=await getProductBySlug((await params).slug);return product?Response.json({data:product}):Response.json({error:'Product not found'},{status:404})}

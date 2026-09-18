@@ -194,9 +194,22 @@ export function ProductDetails ( { product }: { product: Product } )
               </p>
             ) }
 
+            {/* Not Available Banner */ }
+            { product.status === 'draft' && (
+              <div className="rounded-lg border-2 border-red-500 bg-red-50 px-5 py-4 text-center">
+                <p className="text-sm font-bold uppercase tracking-widest text-red-600">⚠ Product Not Available</p>
+                <p className="mt-1 text-xs text-red-400">This item is currently unavailable. Check back soon.</p>
+              </div>
+            ) }
+
             {/* Add to bag */ }
-            <button onClick={ handleAddToBag } className="button w-full" type="button">
-              { added ? '✓ Added to bag' : 'Add to bag' }
+            <button
+              onClick={ handleAddToBag }
+              className="button w-full disabled:opacity-40 disabled:cursor-not-allowed"
+              type="button"
+              disabled={ product.status === 'draft' }
+            >
+              { product.status === 'draft' ? '🚫 Not Available' : added ? '✓ Added to bag' : 'Add to bag' }
             </button>
 
             {/* COD */ }
@@ -205,77 +218,77 @@ export function ProductDetails ( { product }: { product: Product } )
                 { product.cod ? '🚚 Cash on Delivery available' : '🚫 COD not available' }
               </p>
             ) }
-        {/* ── Tabs: Product Details / Shipping / Reviews ── */ }
-        <div className="mt-12 border-t border-stone/70 pt-8 sm:mt-14">
-          {/* Tab headers */ }
-          <div className="flex overflow-x-auto rounded-xl border border-stone/80 bg-white/50 p-1 shadow-sm">
-            { ( [ 'details', 'shipping' ] as const ).map( tab => (
-              <button key={ tab } onClick={ () => setActiveTab( tab ) }
-                aria-pressed={ activeTab === tab }
-                className={ `flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-4 py-3 text-xs font-bold uppercase tracking-[.1em] transition sm:flex-1 sm:justify-center sm:px-5 ${ activeTab === tab ? 'bg-navy text-white shadow-sm' : 'text-zinc-500 hover:bg-stone/60 hover:text-navy' }` }>
-                <span aria-hidden="true">{ tab === 'details' ? '▤' : '▣' }</span>
-                { tab === 'details' ? 'Product Details' : 'Shipping' }
-              </button>
-            ) ) }
-          </div>
+            {/* ── Tabs: Product Details / Shipping / Reviews ── */ }
+            <div className="mt-12 border-t border-stone/70 pt-8 sm:mt-14">
+              {/* Tab headers */ }
+              <div className="flex overflow-x-auto rounded-xl border border-stone/80 bg-white/50 p-1 shadow-sm">
+                { ( [ 'details', 'shipping' ] as const ).map( tab => (
+                  <button key={ tab } onClick={ () => setActiveTab( tab ) }
+                    aria-pressed={ activeTab === tab }
+                    className={ `flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-4 py-3 text-xs font-bold uppercase tracking-[.1em] transition sm:flex-1 sm:justify-center sm:px-5 ${ activeTab === tab ? 'bg-navy text-white shadow-sm' : 'text-zinc-500 hover:bg-stone/60 hover:text-navy' }` }>
+                    <span aria-hidden="true">{ tab === 'details' ? '▤' : '▣' }</span>
+                    { tab === 'details' ? 'Product Details' : 'Shipping' }
+                  </button>
+                ) ) }
+              </div>
 
-          {/* Tab content */ }
-          <div className="mt-5 rounded-xl border border-stone/70 bg-white/35 px-4 py-5 sm:px-6 sm:py-7">
-            { activeTab === 'details' && (
-              <div className="grid max-w-5xl gap-0">
-                <DetailRow label="Description" value={ product.description } />
-                <DetailRow label="Category" value={ product.category } />
-                <DetailRow label="Subcategory" value={ product.subcategory } />
-                <DetailRow label="Gender" value={ product.gender } />
-                <DetailRow label="Fabric" value={ product.fabric } />
-                <DetailRow label="Material" value={ product.material } />
-                <DetailRow label="Fit" value={ product.fit } />
-                <DetailRow label="Pattern" value={ product.pattern } />
-                <DetailRow label="Sleeve" value={ product.sleeve } />
-                <DetailRow label="Collar" value={ product.collar } />
-                <DetailRow label="Occasion" value={ product.occasion } />
-                <DetailRow label="Season" value={ product.season } />
-                <DetailRow label="SKU" value={ product.id } />
-                { product.tags && product.tags.length > 0 && (
-                  <div className="flex gap-5 border-b border-stone/60 py-4 sm:gap-8">
-                    <span className="w-28 shrink-0 text-sm font-medium uppercase tracking-wide text-zinc-500 sm:w-40">Tags</span>
-                    <div className="flex flex-wrap gap-1">
-                      { product.tags.map( t => (
-                        <span key={ t } className="rounded-full bg-stone/60 px-3 py-1 text-xs text-zinc-700">{ t }</span>
-                      ) ) }
-                    </div>
+              {/* Tab content */ }
+              <div className="mt-5 rounded-xl border border-stone/70 bg-white/35 px-4 py-5 sm:px-6 sm:py-7">
+                { activeTab === 'details' && (
+                  <div className="grid max-w-5xl gap-0">
+                    <DetailRow label="Description" value={ product.description } />
+                    <DetailRow label="Category" value={ product.category } />
+                    <DetailRow label="Subcategory" value={ product.subcategory } />
+                    <DetailRow label="Gender" value={ product.gender } />
+                    <DetailRow label="Fabric" value={ product.fabric } />
+                    <DetailRow label="Material" value={ product.material } />
+                    <DetailRow label="Fit" value={ product.fit } />
+                    <DetailRow label="Pattern" value={ product.pattern } />
+                    <DetailRow label="Sleeve" value={ product.sleeve } />
+                    <DetailRow label="Collar" value={ product.collar } />
+                    <DetailRow label="Occasion" value={ product.occasion } />
+                    <DetailRow label="Season" value={ product.season } />
+                    <DetailRow label="SKU" value={ product.id } />
+                    { product.tags && product.tags.length > 0 && (
+                      <div className="flex gap-5 border-b border-stone/60 py-4 sm:gap-8">
+                        <span className="w-28 shrink-0 text-sm font-medium uppercase tracking-wide text-zinc-500 sm:w-40">Tags</span>
+                        <div className="flex flex-wrap gap-1">
+                          { product.tags.map( t => (
+                            <span key={ t } className="rounded-full bg-stone/60 px-3 py-1 text-xs text-zinc-700">{ t }</span>
+                          ) ) }
+                        </div>
+                      </div>
+                    ) }
                   </div>
                 ) }
-              </div>
-            ) }
 
-            { activeTab === 'shipping' && (
-              <div className="max-w-5xl">
-                <div className="mb-6 grid gap-3 sm:grid-cols-2">
-                  <div className="flex gap-3 rounded-lg border border-stone/70 bg-white/50 p-4">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-stone text-lg" aria-hidden="true">🚚</span>
-                    <div>
-                      <p className="text-sm font-semibold text-navy">Delivery</p>
-                      <p className="mt-1 text-sm leading-6 text-zinc-500">Standard delivery in 3–7 business days.</p>
+                { activeTab === 'shipping' && (
+                  <div className="max-w-5xl">
+                    <div className="mb-6 grid gap-3 sm:grid-cols-2">
+                      <div className="flex gap-3 rounded-lg border border-stone/70 bg-white/50 p-4">
+                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-stone text-lg" aria-hidden="true">🚚</span>
+                        <div>
+                          <p className="text-sm font-semibold text-navy">Delivery</p>
+                          <p className="mt-1 text-sm leading-6 text-zinc-500">Standard delivery in 3–7 business days.</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3 rounded-lg border border-stone/70 bg-white/50 p-4">
+                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-stone text-lg" aria-hidden="true">💳</span>
+                        <div>
+                          <p className="text-sm font-semibold text-navy">Cash on Delivery</p>
+                          <p className="mt-1 text-sm leading-6 text-zinc-500">{ product.cod ? 'Available for this product.' : 'Not available for this product.' }</p>
+                        </div>
+                      </div>
                     </div>
+                    <DetailRow label="Weight" value={ product.weight } />
+                    <DetailRow label="Dimensions" value={ product.dimensions } />
+                    <DetailRow label="GST" value={ product.gst } />
+                    <p className="mt-6 border-t border-stone/60 pt-5 text-sm leading-7 text-zinc-500">📦 Express delivery is also available at checkout.</p>
                   </div>
-                  <div className="flex gap-3 rounded-lg border border-stone/70 bg-white/50 p-4">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-stone text-lg" aria-hidden="true">💳</span>
-                    <div>
-                      <p className="text-sm font-semibold text-navy">Cash on Delivery</p>
-                      <p className="mt-1 text-sm leading-6 text-zinc-500">{ product.cod ? 'Available for this product.' : 'Not available for this product.' }</p>
-                    </div>
-                  </div>
-                </div>
-                <DetailRow label="Weight" value={ product.weight } />
-                <DetailRow label="Dimensions" value={ product.dimensions } />
-                <DetailRow label="GST" value={ product.gst } />
-                <p className="mt-6 border-t border-stone/60 pt-5 text-sm leading-7 text-zinc-500">📦 Express delivery is also available at checkout.</p>
-              </div>
-            ) }
+                ) }
 
-          </div>
-        </div>
+              </div>
+            </div>
           </section>
         </div>
       </main>

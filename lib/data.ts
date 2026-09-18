@@ -52,15 +52,20 @@ function formatSupabaseProduct ( product: any ): Product
         styleOrigin: product.style_origin || 'Scotland',
         occasion: product.occasion || 'Everyday',
         isNew: product.is_new_arrival,
-        isBestSeller: product.is_best_seller
+        isBestSeller: product.is_best_seller,
+        status: product.status === 'active' || product.status === 'published' ? 'published' : 'draft',
     };
 }
 
 export async function getAllProducts ()
 {
-    if ( supabase )
+    const supabaseServer = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+        ? createClient( process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY )
+        : supabase;
+
+    if ( supabaseServer )
     {
-        const { data: supabaseProducts, error } = await supabase
+        const { data: supabaseProducts, error } = await supabaseServer
             .from( 'products' )
             .select( '*, product_variants(*), product_images(*)' );
 
@@ -121,9 +126,13 @@ export async function getAllProducts ()
 
 export async function getAdminProducts ()
 {
-    if ( !supabase ) return [];
+    const supabaseServer = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+        ? createClient( process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY )
+        : supabase;
 
-    const { data: supabaseProducts, error } = await supabase
+    if ( !supabaseServer ) return [];
+
+    const { data: supabaseProducts, error } = await supabaseServer
         .from( 'products' )
         .select( '*, categories(name), product_variants(*), product_images(*)' );
 

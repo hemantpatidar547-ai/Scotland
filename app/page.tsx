@@ -49,7 +49,11 @@ export default async function Home ()
 {
   const products = await getAllProducts();
   const dailyProducts = getDailyProducts( products );
-  const newArrivalProducts = products.filter( product => product.isNew );
+
+  // Naye added products sbse aakhri me aate hain array me, isliye reverse karke sabse naye wale pehle show honge. 
+  // Hum pehle `isNew` wale prioritize kar sakte hain ya fir sirf naye added (reverse order).
+  // Yaha hum automatically list ko reverse kar rahe hai taaki jo sabse latest add hue hai, wo sabse upar(new arrival) aaye.
+  const newArrivalProducts = [ ...products ].reverse();
   return <main>
     <RotatingHeroSection images={ heroImages } autoRotateInterval={ 5000 } />
 
@@ -83,6 +87,6 @@ export default async function Home ()
       <div className="flex items-center px-6 pt-14 pb-8 sm:p-20"><div><p className="eyebrow text-stone/70">The complete look</p><h2 className="mt-3 font-display text-4xl sm:text-5xl leading-[1.1]">The Edinburgh<br />weekender.</h2><p className="mt-4 max-w-sm leading-6 text-stone/90">Easy layers for unplanned detours. A brushed overshirt, relaxed trouser and hardwearing leather boot, selected to work as one.</p><Link className="button mt-8 bg-cream text-navy hover:text-white" href="/complete-looks">Shop this look</Link></div></div>
     </section>
 
-    <section className="shell py-20"><div className="grid items-center gap-10 lg:grid-cols-2"><div><p className="eyebrow">Our point of view</p><h2 className="display mt-4 text-5xl">Heritage, without<br />the costume.</h2><p className="mt-5 max-w-md leading-7 text-zinc-600">We take our cues from the changing Scottish landscape: stormy blues, peat browns and unexpected Highland reds. The result is a wardrobe that feels quietly distinctive, anywhere in the world.</p><Link className="eyebrow mt-6 inline-block border-b border-navy pb-1" href="/about">Meet SCOTLAND</Link></div><div className="relative min-h-[300px] w-full overflow-hidden sm:min-h-[390px]" style={{ backgroundImage: 'url("/images/hero/photo-1506377585622-bedcbb027afc.webp")', backgroundPosition: 'center', backgroundSize: 'cover' }}><Image src="/images/hero/photo-1506377585622-bedcbb027afc.webp" alt="Edinburgh skyline at sunset" fill className="object-cover" sizes="50vw" /></div></div></section>
+    <section className="shell py-20"><div className="grid items-center gap-10 lg:grid-cols-2"><div><p className="eyebrow">Our point of view</p><h2 className="display mt-4 text-5xl">Heritage, without<br />the costume.</h2><p className="mt-5 max-w-md leading-7 text-zinc-600">We take our cues from the changing Scottish landscape: stormy blues, peat browns and unexpected Highland reds. The result is a wardrobe that feels quietly distinctive, anywhere in the world.</p><Link className="eyebrow mt-6 inline-block border-b border-navy pb-1" href="/about">Meet SCOTLAND</Link></div><div className="relative min-h-[300px] w-full overflow-hidden sm:min-h-[390px]" style={ { backgroundImage: 'url("/images/hero/photo-1506377585622-bedcbb027afc.webp")', backgroundPosition: 'center', backgroundSize: 'cover' } }><Image src="/images/hero/photo-1506377585622-bedcbb027afc.webp" alt="Edinburgh skyline at sunset" fill className="object-cover" sizes="50vw" /></div></div></section>
   </main>;
 }

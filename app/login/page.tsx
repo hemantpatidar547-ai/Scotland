@@ -9,8 +9,9 @@ function LoginContent ()
 {
     const searchParams = useSearchParams();
     const redirectTo = searchParams.get( 'redirect' ) || '/';
+    const errorParam = searchParams.get( 'error' );
 
-    const [ error, setError ] = useState<string | null>( null );
+    const [ error, setError ] = useState<string | null>( errorParam || null );
     const [ isPending, startTransition ] = useTransition();
     const [ isLoginMode, setIsLoginMode ] = useState<boolean>( true );
 
@@ -69,15 +70,30 @@ function LoginContent ()
                 <form action={ handleSubmit } className="space-y-5">
                     <input type="hidden" name="redirect" value={ redirectTo } />
 
-                    <div className="space-y-1">
-                        <label className="text-xs font-semibold text-zinc-600 uppercase tracking-wide">Email address</label>
-                        <input
-                            name="email"
-                            type="email"
-                            required
-                            placeholder="you@email.com"
-                            className="w-full px-4 py-3 bg-[#f8f9fa] border-2 border-stone focus:border-navy focus:bg-white rounded-xl outline-none transition-all duration-300"
-                        />
+                    <div className="space-y-4">
+                        { !isLoginMode && (
+                            <div className="space-y-1">
+                                <label className="text-xs font-semibold text-zinc-600 uppercase tracking-wide">Full Name</label>
+                                <input
+                                    name="name"
+                                    type="text"
+                                    required={ !isLoginMode }
+                                    placeholder="John Doe"
+                                    className="w-full px-4 py-3 bg-[#f8f9fa] border-2 border-stone focus:border-navy focus:bg-white rounded-xl outline-none transition-all duration-300"
+                                />
+                            </div>
+                        ) }
+
+                        <div className="space-y-1">
+                            <label className="text-xs font-semibold text-zinc-600 uppercase tracking-wide">Email address</label>
+                            <input
+                                name="email"
+                                type="email"
+                                required
+                                placeholder="you@email.com"
+                                className="w-full px-4 py-3 bg-[#f8f9fa] border-2 border-stone focus:border-navy focus:bg-white rounded-xl outline-none transition-all duration-300"
+                            />
+                        </div>
                     </div>
 
                     <div className="space-y-1">

@@ -4,6 +4,7 @@ import { getAllProducts } from '@/lib/data';
 import { ProductCard } from '@/components/ProductCard';
 import Link from 'next/link';
 
+
 export const metadata = {
   title: 'Shop – Scotland Collection',
   description: 'Explore the full range of premium Scottish-inspired clothing and accessories.',

@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { getAdminProductSchemaError } from '@/lib/admin-product-schema';
+import { bustProductCache } from '@/lib/data';
+import { isAdminRequest } from '@/lib/admin-auth';
 import { supabaseAdmin } from '@/lib/supabase/server';
 
 type ProductPayload = {
@@ -22,6 +25,8 @@ type ProductPayload = {
     gst?: string;
     sizes?: string[];
     colors?: string[];
+    sizeStock?: Record<string, number>;
+    variantStock?: Record<string, number>;
     stock_quantity?: number;
     low_stock_alert?: number;
     stock_status?: string;
@@ -47,6 +52,8 @@ type ProductPayload = {
 
 export async function POST ( request: Request )
 {
+    if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+
     if ( !supabaseAdmin )
     {
         return NextResponse.json(
@@ -141,6 +148,19 @@ export async function POST ( request: Request )
         }
     }
 
+    const colors = payload.colors?.length ? payload.colors : [ 'Default' ];
+    const sizes = payload.sizes?.length ? payload.sizes : [ 'One size' ];
+    const variantStock = colors.flatMap( color => sizes.map( size => ( {
+        color,
+        size,
+        stockQuantity: Number( payload.variantStock?.[ JSON.stringify( [ color, size ] ) ] ?? payload.sizeStock?.[ size ] ?? 0 ),
+    } ) ) );
+    const invalidVariantStock = variantStock.find( variant => !Number.isInteger( variant.stockQuantity ) || variant.stockQuantity < 0 );
+    if ( invalidVariantStock )
+    {
+        return NextResponse.json( { error: `Enter a valid whole-number stock for ${ invalidVariantStock.color } / ${ invalidVariantStock.size }.` }, { status: 400 } );
+    }
+
     const productInsert = {
         name: payload.name,
         slug: uniqueSlug,
@@ -156,7 +176,27 @@ export async function POST ( request: Request )
         price: payload.price || 0,
         sale_price: payload.salePrice || payload.price || null,
         cost_price: payload.cost_price || null,
+        mrp: payload.mrp || null,
+        discount: payload.discount || 0,
         tax_percentage: Number.parseFloat( payload.gst || '0' ) || 0,
+        product_metadata: {
+            category: payload.category,
+            subcategory: payload.subcategory,
+            fabric: payload.fabric,
+            fit: payload.fit,
+            pattern: payload.pattern,
+            sleeve: payload.sleeve,
+            collar: payload.collar,
+            weight: payload.weight,
+            dimensions: payload.dimensions,
+            cod: payload.cod,
+            low_stock_alert: payload.low_stock_alert,
+            stock_status: payload.stock_status,
+            size_chart: payload.size_chart,
+            seo_title: payload.seo_title,
+            meta_description: payload.meta_description,
+            tags: payload.tags,
+        },
         sku: normalizedSku,
         status: payload.status === 'published' ? 'active' : 'draft',
         is_featured: Boolean( payload.featured ),
@@ -173,20 +213,22 @@ export async function POST ( request: Request )
 
     if ( productError || !product )
     {
-        return NextResponse.json( { error: productError?.message || 'Could not save product.' }, { status: 400 } );
+        const schemaMessage = getAdminProductSchemaError( productError );
+        return NextResponse.json(
+            { error: schemaMessage || productError?.message || 'Could not save product.' },
+            { status: schemaMessage ? 503 : 400 }
+        );
     }
 
-    const colors = payload.colors?.length ? payload.colors : [ 'Default' ];
-    const sizes = payload.sizes?.length ? payload.sizes : [ 'One size' ];
-    const variants = colors.flatMap( color => sizes.map( size => ( {
-        product_id: product.id,
-        sku: `${ payload.sku }-${ color }-${ size }`.replace( /[^a-zA-Z0-9-]/g, '-' ),
-        color,
-        size,
-        price: payload.price || 0,
-        sale_price: payload.salePrice || payload.price || null,
-        stock_quantity: payload.stock_quantity || 0,
-    } ) ) );
+    const variants = variantStock.map( variant => ( {
+            product_id: product.id,
+            sku: `${ payload.sku }-${ variant.color }-${ variant.size }`.replace( /[^a-zA-Z0-9-]/g, '-' ),
+            color: variant.color,
+            size: variant.size,
+            price: payload.price || 0,
+            sale_price: payload.salePrice || payload.price || null,
+            stock_quantity: variant.stockQuantity,
+        } ) );
 
     const { error: variantsError } = await supabaseAdmin.from( 'product_variants' ).insert( variants );
     if ( variantsError )
@@ -214,5 +256,30 @@ export async function POST ( request: Request )
         }
     }
 
+    bustProductCache();
     return NextResponse.json( { data: { id: product.id }, message: 'Product saved to Supabase.' }, { status: 201 } );
+}
+
+export async function GET ()
+{
+    if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+
+    if ( !supabaseAdmin ) return NextResponse.json( { error: 'Supabase is not configured' }, { status: 503 } );
+
+    const { data, error } = await supabaseAdmin
+        .from( 'product_variants' )
+        .select( 'id, product_id, color, size, stock_quantity' )
+        .eq( 'is_active', true );
+
+    if ( error ) return NextResponse.json( { error: error.message }, { status: 500 } );
+
+    return NextResponse.json( {
+        variants: ( data || [] ).map( variant => ( {
+            id: variant.id,
+            productId: variant.product_id,
+            color: variant.color || 'Default',
+            size: variant.size || 'One size',
+            stockQuantity: Number( variant.stock_quantity ) || 0,
+        } ) ),
+    } );
 }

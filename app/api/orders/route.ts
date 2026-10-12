@@ -1,29 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/ssr-server';
-import { getDb } from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
-
-/* ── helpers ─────────────────────────────────── */
-function money ( n: number )
-{
-    return new Intl.NumberFormat( 'en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 } ).format( n );
-}
+import { getSupabaseAdmin } from '@/lib/supabase/db';
+import { bustProductCache } from '@/lib/data';
 
 /* ── POST /api/orders  (create order) ─────────── */
 export async function POST ( req: NextRequest )
 {
     try
     {
-        /* 1. Auth */
         const supabase = await createClient();
-        const { data: { user }, error } = await supabase.auth.getUser();
-        if ( error || !user ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+        const { data: { user } } = await supabase.auth.getUser();
 
         const body = await req.json();
         const {
-            cartItems,          // [{ productId, name, image, size, color, quantity, price }]
-            shippingAddress,    // { name, email, phone, address, city, state, postalCode, country }
-            paymentMethod,      // 'cod' | 'razorpay'
+            cartItems,
+            shippingAddress,
+            paymentMethod,
             razorpayPaymentId,
             razorpayOrderId,
             razorpaySignature,
@@ -34,101 +26,125 @@ export async function POST ( req: NextRequest )
         if ( !cartItems?.length ) return NextResponse.json( { error: 'Cart is empty' }, { status: 400 } );
         if ( !shippingAddress ) return NextResponse.json( { error: 'Shipping address required' }, { status: 400 } );
 
-        const db = await getDb();
-
-        /* 2. Validate prices server-side (never trust client prices) */
-        const productIds = cartItems.map( ( i: any ) => i.productId ).filter( Boolean );
-        const dbProducts = await db.collection( 'products' ).find( { _id: { $in: productIds.map( ( id: string ) => { try { return new ObjectId( id ) } catch { return null } } ).filter( Boolean ) } } ).toArray();
-        const dbProductsMap = new Map( dbProducts.map( p => [ p._id.toString(), p ] ) );
-
-        let subtotal = 0;
-        const validatedItems = cartItems.map( ( item: any ) =>
+        const db = getSupabaseAdmin();
+        const normalizedCart = cartItems.map( ( item: any ) =>
         {
-            const dbP = dbProductsMap.get( item.productId );
-            const price = dbP ? Number( dbP.salePrice || dbP.price ) : Number( item.price );
-            subtotal += price * item.quantity;
+            const productId = item.product?.id || item.productId;
+            const quantity = Number( item.quantity );
+            if ( typeof productId !== 'string' || !Number.isInteger( quantity ) || quantity < 1 || !item.size || !item.color )
+            {
+                throw new Error( 'Each cart item must have a product, size, color, and valid quantity.' );
+            }
+            return { item, productId, quantity, size: String( item.size ), color: String( item.color ) };
+        } );
+
+        const productIds = Array.from( new Set( normalizedCart.map( ( item: any ) => item.productId ) ) );
+        const { data: variants, error: variantsError } = await db
+            .from( 'product_variants' )
+            .select( 'id, product_id, size, color' )
+            .in( 'product_id', productIds );
+
+        if ( variantsError ) throw variantsError;
+
+        const inventoryByVariant = new Map<string, number>();
+        const validatedItems = normalizedCart.map( ( cartItem: any ) =>
+        {
+            const variant = variants?.find( candidate =>
+                candidate.product_id === cartItem.productId &&
+                ( candidate.size || 'One size' ) === cartItem.size &&
+                ( candidate.color || 'Default' ) === cartItem.color
+            );
+            if ( !variant ) throw new Error( `The selected size/color for ${ cartItem.item.product?.name || 'a product' } is no longer available.` );
+
+            inventoryByVariant.set( variant.id, ( inventoryByVariant.get( variant.id ) || 0 ) + cartItem.quantity );
+            const price = Number( cartItem.item.product?.price || cartItem.item.price || 0 );
             return {
-                productId: item.productId,
-                name: item.name,
-                image: item.image,
-                size: item.size,
-                color: item.color,
-                quantity: item.quantity,
+                productId: cartItem.productId,
+                name: cartItem.item.product?.name || cartItem.item.name,
+                image: cartItem.item.product?.image || cartItem.item.image,
+                size: cartItem.size,
+                color: cartItem.color,
+                quantity: cartItem.quantity,
                 price,
-                totalPrice: price * item.quantity,
+                totalPrice: price * cartItem.quantity,
             };
         } );
 
-        /* 3. Shipping */
-        const shippingCost = subtotal >= 4000 ? 0 : 250;
-
-        /* 4. Tax (example: 5% GST) */
-        const tax = Math.round( subtotal * 0.05 );
-
-        /* 5. Final amount */
-        const finalAmount = subtotal + shippingCost + tax - couponDiscount;
-
-        /* 6. Generate order number */
-        const orderCount = await db.collection( 'orders' ).countDocuments();
-        const orderNumber = `SC-${ String( 100000 + orderCount + 1 ) }`;
-
-        /* 7. Build order document */
-        const orderDoc = {
-            orderNumber,
-            userId: user.id,
-            userEmail: user.email,
-            shippingAddress,
-            items: validatedItems,
-            subtotal,
-            shippingCost,
-            tax,
-            couponCode: couponCode || null,
-            couponDiscount,
-            finalAmount,
-            paymentMethod,
-            paymentStatus: paymentMethod === 'cod' ? 'pending' : 'paid',
-            razorpayPaymentId: razorpayPaymentId || null,
-            razorpayOrderId: razorpayOrderId || null,
-            razorpaySignature: razorpaySignature || null,
-            orderStatus: 'pending',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        };
-
-        const result = await db.collection( 'orders' ).insertOne( orderDoc );
-
-        /* 8. Reduce stock (best-effort) */
-        for ( const item of validatedItems )
+        const inventoryReservation = Array.from( inventoryByVariant, ( [ variant_id, quantity ] ) => ( { variant_id, quantity } ) );
+        const { error: reservationError } = await db.rpc( 'decrement_product_variant_stocks', { p_items: inventoryReservation } );
+        if ( reservationError )
         {
-            try
-            {
-                await db.collection( 'products' ).updateOne(
-                    { _id: new ObjectId( item.productId ) },
-                    { $inc: { stock: -item.quantity } }
-                );
-            } catch ( _e ) { /* ignore if product not in MongoDB */ }
-        }
-
-        /* 9. Mark coupon as used (best-effort) */
-        if ( couponCode )
-        {
-            await db.collection( 'coupons' ).updateOne(
-                { code: couponCode.toUpperCase() },
-                { $inc: { usedCount: 1 } }
+            console.error( 'Order inventory reservation failed:', reservationError );
+            const isOutOfStock = reservationError.message.toLowerCase().includes( 'insufficient stock' );
+            const inventoryRpcMissing = reservationError.code === 'PGRST202' &&
+                reservationError.message.includes( 'decrement_product_variant_stocks' );
+            return NextResponse.json(
+                {
+                    error: isOutOfStock
+                        ? 'The requested quantity is no longer in stock. Please update your cart.'
+                        : inventoryRpcMissing
+                            ? 'Checkout inventory setup is incomplete. Run supabase/migrations/0003_atomic_variant_inventory.sql in the Supabase SQL Editor, then try again.'
+                            : 'Could not reserve product stock. Please try again.',
+                },
+                { status: isOutOfStock ? 409 : inventoryRpcMissing ? 503 : 500 }
             );
         }
 
+        /* Calculate amounts */
+        let subtotal = 0;
+        for ( const item of validatedItems ) subtotal += item.price * item.quantity;
+
+        const shippingCost = subtotal >= 4000 ? 0 : 50; // flat Rs 50
+        const tax = 0; // No tax for now
+        const finalAmount = subtotal + shippingCost - couponDiscount;
+
+        const orderNumber = `SC-${ Date.now() }`;
+
+        const { data: order, error } = await db.from( 'orders' ).insert( {
+            order_number: orderNumber,
+            user_id: user?.id || null,
+            user_email: user?.email || shippingAddress.email || null,
+            email: user?.email || shippingAddress.email || '', // Fix for existing schema
+            shipping_address: shippingAddress,
+            items: validatedItems,
+            subtotal,
+            shipping_cost: shippingCost,
+            tax,
+            coupon_code: couponCode || null,
+            coupon_discount: couponDiscount,
+            final_amount: finalAmount,
+            total_amount: finalAmount, // Fix for existing schema
+            payment_method: paymentMethod,
+            payment_status: paymentMethod === 'cod' ? 'pending' : 'paid',
+            razorpay_payment_id: razorpayPaymentId || null,
+            razorpay_order_id: razorpayOrderId || null,
+            razorpay_signature: razorpaySignature || null,
+            order_status: 'pending',
+        } ).select().single();
+
+        if ( error )
+        {
+            const { error: restoreError } = await db.rpc( 'restore_product_variant_stocks', { p_items: inventoryReservation } );
+            if ( restoreError )
+            {
+                console.error( 'Failed to restore stock after order creation failed:', restoreError );
+                throw new Error( `${ error.message }; stock restoration also failed.` );
+            }
+            throw error;
+        }
+
+        bustProductCache();
+
         return NextResponse.json( {
             success: true,
-            orderId: result.insertedId.toString(),
+            orderId: order.id,
             orderNumber,
             finalAmount,
         } );
-    }
-    catch ( err )
+    } catch ( err: any )
     {
         console.error( 'Order creation error:', err );
-        return NextResponse.json( { error: 'Failed to create order' }, { status: 500 } );
+        return NextResponse.json( { error: err?.message || 'Failed to create order' }, { status: 500 } );
     }
 }
 
@@ -141,15 +157,17 @@ export async function GET ()
         const { data: { user }, error } = await supabase.auth.getUser();
         if ( error || !user ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
-        const db = await getDb();
-        const orders = await db.collection( 'orders' )
-            .find( { userId: user.id } )
-            .sort( { createdAt: -1 } )
-            .toArray();
+        const db = getSupabaseAdmin();
+        const { data: orders, error: ordErr } = await db
+            .from( 'orders' )
+            .select( '*' )
+            .eq( 'user_id', user.id )
+            .order( 'created_at', { ascending: false } );
 
-        return NextResponse.json( { data: orders.map( o => ( { ...o, _id: o._id.toString() } ) ) } );
-    }
-    catch ( err )
+        if ( ordErr ) throw ordErr;
+
+        return NextResponse.json( { data: orders || [] } );
+    } catch ( err )
     {
         console.error( 'Fetch orders error:', err );
         return NextResponse.json( { error: 'Failed to fetch orders' }, { status: 500 } );

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/ssr-server';
-import { getDb } from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { getSupabaseAdmin } from '@/lib/supabase/db';
 
 async function requireAdmin ()
 {
     const supabase = await createClient();
     const { data: { user }, error } = await supabase.auth.getUser();
-    if ( error || !user || user.email !== process.env.ADMIN_EMAIL ) return null;
+    const adminEmails = [ 'patidarhemant226@gmail.com', 'hemantpatidar547@gmail.com', process.env.ADMIN_EMAIL ];
+    if ( error || !user || !adminEmails.includes( user.email ) ) return null;
     return user;
 }
 
@@ -15,9 +15,9 @@ async function requireAdmin ()
 export async function GET ()
 {
     if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
-    const db = await getDb();
-    const coupons = await db.collection( 'coupons' ).find( {} ).sort( { createdAt: -1 } ).toArray();
-    return NextResponse.json( { data: coupons.map( c => ( { ...c, _id: c._id.toString() } ) ) } );
+    const db = getSupabaseAdmin();
+    const { data: coupons } = await db.from( 'coupons' ).select( '*' ).order( 'created_at', { ascending: false } );
+    return NextResponse.json( { data: coupons || [] } );
 }
 
 /* POST — create coupon */
@@ -31,28 +31,27 @@ export async function POST ( req: NextRequest )
     if ( !code || !discountType || !discountValue )
         return NextResponse.json( { error: 'code, discountType, and discountValue are required' }, { status: 400 } );
 
-    const db = await getDb();
-    const existing = await db.collection( 'coupons' ).findOne( { code: code.toUpperCase() } );
+    const db = getSupabaseAdmin();
+    const { data: existing } = await db.from( 'coupons' ).select( 'id' ).eq( 'code', code.toUpperCase() ).single();
     if ( existing ) return NextResponse.json( { error: 'Coupon code already exists' }, { status: 409 } );
 
-    const coupon = {
+    const { data, error } = await db.from( 'coupons' ).insert( {
         code: code.toUpperCase().trim(),
-        discountType,       // 'percentage' | 'fixed'
-        discountValue: Number( discountValue ),
-        minimumOrderAmount: minimumOrderAmount ? Number( minimumOrderAmount ) : 0,
-        maximumDiscount: maximumDiscount ? Number( maximumDiscount ) : null,
-        usageLimit: usageLimit ? Number( usageLimit ) : null,
-        usedCount: 0,
-        isActive: true,
-        expiresAt: expiresAt ? new Date( expiresAt ) : null,
-        createdAt: new Date(),
-    };
+        discount_type: discountType,
+        discount_value: Number( discountValue ),
+        minimum_order_amount: minimumOrderAmount ? Number( minimumOrderAmount ) : 0,
+        maximum_discount: maximumDiscount ? Number( maximumDiscount ) : null,
+        usage_limit: usageLimit ? Number( usageLimit ) : null,
+        used_count: 0,
+        is_active: true,
+        expires_at: expiresAt ? new Date( expiresAt ).toISOString() : null,
+    } ).select().single();
 
-    const result = await db.collection( 'coupons' ).insertOne( coupon );
-    return NextResponse.json( { success: true, id: result.insertedId.toString() } );
+    if ( error ) return NextResponse.json( { error: error.message }, { status: 500 } );
+    return NextResponse.json( { success: true, id: data.id } );
 }
 
-/* PATCH — toggle active / update */
+/* PATCH — toggle active */
 export async function PATCH ( req: NextRequest )
 {
     if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
@@ -60,11 +59,9 @@ export async function PATCH ( req: NextRequest )
     const { id, isActive } = await req.json();
     if ( !id ) return NextResponse.json( { error: 'id required' }, { status: 400 } );
 
-    const db = await getDb();
-    await db.collection( 'coupons' ).updateOne(
-        { _id: new ObjectId( id ) },
-        { $set: { isActive, updatedAt: new Date() } }
-    );
+    const db = getSupabaseAdmin();
+    const { error } = await db.from( 'coupons' ).update( { is_active: isActive } ).eq( 'id', id );
+    if ( error ) return NextResponse.json( { error: error.message }, { status: 500 } );
     return NextResponse.json( { success: true } );
 }
 
@@ -76,7 +73,8 @@ export async function DELETE ( req: NextRequest )
     const { id } = await req.json();
     if ( !id ) return NextResponse.json( { error: 'id required' }, { status: 400 } );
 
-    const db = await getDb();
-    await db.collection( 'coupons' ).deleteOne( { _id: new ObjectId( id ) } );
+    const db = getSupabaseAdmin();
+    const { error } = await db.from( 'coupons' ).delete().eq( 'id', id );
+    if ( error ) return NextResponse.json( { error: error.message }, { status: 500 } );
     return NextResponse.json( { success: true } );
 }

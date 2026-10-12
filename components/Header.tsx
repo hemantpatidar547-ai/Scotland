@@ -4,9 +4,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { useStore } from './StoreProvider';
+import { SearchOverlay } from './SearchOverlay';
 
 const navItems = [
-  [ 'Home', '/' ], [ 'Collections', '/collections' ], [ 'Shop', '/shop' ], [ 'About us', '/about' ], [ 'Contact', '/contact' ],
+  [ 'Home', '/' ], [ 'Shop', '/shop' ], [ 'About us', '/about' ], [ 'Contact', '/contact' ],
 ];
 
 function SearchIcon () { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>; }
@@ -16,6 +17,7 @@ function BagIcon () { return <svg viewBox="0 0 24 24" fill="none" stroke="curren
 export function Header ()
 {
   const [ open, setOpen ] = useState( false );
+  const [ isSearchOpen, setIsSearchOpen ] = useState( false );
   const pathname = usePathname();
   const { cart } = useStore();
   const count = cart.reduce( ( total, item ) => total + item.quantity, 0 );
@@ -33,12 +35,13 @@ export function Header ()
         </nav>
         <div className="flex items-center justify-end gap-3 border-navy/15 text-navy lg:border-l lg:ml-6 lg:pl-6">
           <button className="grid h-10 w-8 place-items-center lg:hidden" onClick={ () => setOpen( !open ) } aria-label="Toggle menu"><span className="text-2xl leading-none">{ open ? '×' : '☰' }</span></button>
-          <Link href="/shop" className="grid h-8 w-7 place-items-center [&>svg]:h-5 [&>svg]:w-5" aria-label="Search products"><SearchIcon /></Link>
+          <button onClick={ () => setIsSearchOpen( true ) } className="grid h-8 w-7 place-items-center [&>svg]:h-5 [&>svg]:w-5 hover:text-gold transition" aria-label="Search products"><SearchIcon /></button>
           <Link href="/account" className="grid h-8 w-7 place-items-center [&>svg]:h-5 [&>svg]:w-5" aria-label="Account"><AccountIcon /></Link>
           <Link href="/cart" className="relative grid h-8 w-7 place-items-center [&>svg]:h-5 [&>svg]:w-5" aria-label={ `Shopping bag${ count ? `, ${ count } items` : '' }` }><BagIcon />{ count > 0 && <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[8px] font-bold text-white">{ count }</span> }</Link>
         </div>
       </div>
       { open && <nav className="border-t border-stone bg-cream px-5 py-3 lg:hidden">{ navItems.map( ( [ name, href ] ) => <Link onClick={ () => setOpen( false ) } className={ `block py-3 text-xs font-semibold uppercase tracking-widest ${ pathname === href ? 'text-gold' : 'text-navy' }` } key={ name } href={ href }>{ name }</Link> ) }</nav> }
     </header>
+    <SearchOverlay isOpen={ isSearchOpen } onClose={ () => setIsSearchOpen( false ) } />
   </>;
 }

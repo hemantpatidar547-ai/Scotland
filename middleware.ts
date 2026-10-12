@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/middleware';
+import { isAdminEmail } from '@/lib/admin-authorization';
 
 export async function middleware ( request: NextRequest )
 {
@@ -24,7 +25,7 @@ export async function middleware ( request: NextRequest )
                 url.pathname = '/login';
                 url.searchParams.set( 'redirect', path );
                 return NextResponse.redirect( url );
-            } else if ( user.email !== 'patidarhemant226@gmail.com' )
+            } else if ( !isAdminEmail( user.email ) )
             {
                 // Not authorized as admin
                 const url = request.nextUrl.clone();

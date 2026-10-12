@@ -1,6 +1,7 @@
 'use client';
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Product } from '@/types/product';
 
 const PRESET_CATEGORIES = [ 'Clothing', 'Topwear', 'Bottomwear', 'Footwear', 'Accessories' ];
 const PRESET_SUBCATEGORIES = [ 'Shirt', 'Half Shirt', 'Full Shirt', 'Plain Shirt', 'Baggy Shirt', 'T-Shirt', 'Oversized T-Shirt', 'Polo T-Shirt', 'Lower', 'Joggers', 'Jeans', 'Sweatshirt', 'Hoodie', 'Jacket', 'Blazer', 'Shorts', 'Cargo' ];
@@ -28,36 +29,42 @@ function Field ( { label, children, full }: { label: string; children: React.Rea
     );
 }
 
-export function ProductForm ()
+const variantKey = ( color: string, size: string ) => JSON.stringify( [ color, size ] );
+
+export function ProductForm ( { initialData }: { initialData?: Product } )
 {
     const router = useRouter();
     const [ loading, setLoading ] = useState( false );
 
     // Images
-    const [ mainImage, setMainImage ] = useState<string | null>( null );
-    const [ gallery, setGallery ] = useState<string[]>( [] );
-    const [ sizeChart, setSizeChart ] = useState<string | null>( null );
+    const [ mainImage, setMainImage ] = useState<string | null>( initialData?.image || null );
+    const [ gallery, setGallery ] = useState<string[]>( ( initialData?.images || [] ).filter( image => image !== initialData?.image ) );
+    const [ sizeChart, setSizeChart ] = useState<string | null>( initialData?.size_chart || null );
 
     // Variants
-    const [ selectedSizes, setSelectedSizes ] = useState<string[]>( [] );
-    const [ selectedColors, setSelectedColors ] = useState<string[]>( [] );
+    const [ selectedSizes, setSelectedSizes ] = useState<string[]>( initialData?.sizes || [] );
+    const [ sizeStock, setSizeStock ] = useState<Record<string, number>>( initialData?.sizeStock || {} );
+    const [ variantStock, setVariantStock ] = useState<Record<string, number>>(
+        () => Object.fromEntries( ( initialData?.inventoryVariants || [] ).map( variant => [ variantKey( variant.color, variant.size ), variant.stockQuantity ] ) )
+    );
+    const [ selectedColors, setSelectedColors ] = useState<string[]>( initialData?.colors || [] );
     const [ customColor, setCustomColor ] = useState( '' );
 
     // Category
-    const [ selectedCategory, setSelectedCategory ] = useState( '' );
-    const [ customCategory, setCustomCategory ] = useState( '' );
-    const [ selectedSubcategory, setSelectedSubcategory ] = useState( '' );
-    const [ customSubcategory, setCustomSubcategory ] = useState( '' );
+    const [ selectedCategory, setSelectedCategory ] = useState( PRESET_CATEGORIES.includes( initialData?.category || '' ) ? initialData?.category || '' : '' );
+    const [ customCategory, setCustomCategory ] = useState( initialData && !PRESET_CATEGORIES.includes( initialData.category ) ? initialData.category : '' );
+    const [ selectedSubcategory, setSelectedSubcategory ] = useState( PRESET_SUBCATEGORIES.includes( initialData?.subcategory || '' ) ? initialData?.subcategory || '' : '' );
+    const [ customSubcategory, setCustomSubcategory ] = useState( initialData?.subcategory && !PRESET_SUBCATEGORIES.includes( initialData.subcategory ) ? initialData.subcategory : '' );
 
     // Pricing
-    const [ mrp, setMrp ] = useState( '' );
-    const [ sellingPrice, setSellingPrice ] = useState( '' );
+    const [ mrp, setMrp ] = useState( String( initialData?.mrp ?? initialData?.price ?? '' ) );
+    const [ sellingPrice, setSellingPrice ] = useState( String( initialData?.salePrice ?? initialData?.price ?? '' ) );
     const discount = mrp && sellingPrice
         ? Math.round( ( ( Number( mrp ) - Number( sellingPrice ) ) / Number( mrp ) ) * 100 )
         : 0;
 
     // Publishing
-    const [ status, setStatus ] = useState<'draft' | 'published'>( 'draft' );
+    const [ status, setStatus ] = useState<'draft' | 'published'>( initialData?.status || 'draft' );
 
     const toBase64 = ( file: File ): Promise<string> =>
         new Promise( resolve =>
@@ -75,16 +82,64 @@ export function ProductForm ()
     };
 
     const toggleSize = ( s: string ) =>
-        setSelectedSizes( prev => prev.includes( s ) ? prev.filter( x => x !== s ) : [ ...prev, s ] );
+    {
+        if ( selectedSizes.includes( s ) )
+        {
+            setSelectedSizes( prev => prev.filter( x => x !== s ) );
+            setSizeStock( prev => { const val = { ...prev }; delete val[ s ]; return val; } );
+            setVariantStock( prev =>
+            {
+                const next = { ...prev };
+                selectedColors.forEach( color => delete next[ variantKey( color, s ) ] );
+                return next;
+            } );
+        } else
+        {
+            setSelectedSizes( prev => [ ...prev, s ] );
+            setSizeStock( prev => ( { ...prev, [ s ]: 0 } ) );
+            setVariantStock( prev =>
+            {
+                const next = { ...prev };
+                selectedColors.forEach( color => { next[ variantKey( color, s ) ] = 0; } );
+                return next;
+            } );
+        }
+    };
 
     const toggleColor = ( c: string ) =>
-        setSelectedColors( prev => prev.includes( c ) ? prev.filter( x => x !== c ) : [ ...prev, c ] );
+    {
+        if ( selectedColors.includes( c ) )
+        {
+            setSelectedColors( prev => prev.filter( x => x !== c ) );
+            setVariantStock( prev =>
+            {
+                const next = { ...prev };
+                selectedSizes.forEach( size => delete next[ variantKey( c, size ) ] );
+                return next;
+            } );
+        } else
+        {
+            setSelectedColors( prev => [ ...prev, c ] );
+            setVariantStock( prev =>
+            {
+                const next = { ...prev };
+                selectedSizes.forEach( size => { next[ variantKey( c, size ) ] = 0; } );
+                return next;
+            } );
+        }
+    };
 
     const addCustomColor = () =>
     {
         if ( customColor.trim() && !selectedColors.includes( customColor.trim() ) )
         {
             setSelectedColors( prev => [ ...prev, customColor.trim() ] );
+            setVariantStock( prev =>
+            {
+                const next = { ...prev };
+                selectedSizes.forEach( size => { next[ variantKey( customColor.trim(), size ) ] = 0; } );
+                return next;
+            } );
             setCustomColor( '' );
         }
     };
@@ -124,7 +179,12 @@ export function ProductForm ()
             // Variants
             sizes: selectedSizes,
             colors: selectedColors,
-            stock_quantity: Number( fd.get( 'stock' ) ),
+            sizeStock,
+            variantStock: Object.fromEntries( selectedColors.flatMap( color => selectedSizes.map( size => [
+                variantKey( color, size ),
+                Number( variantStock[ variantKey( color, size ) ] ?? 0 ),
+            ] ) ) ),
+            stock_quantity: Object.values( variantStock ).reduce( ( total, quantity ) => total + ( Number( quantity ) || 0 ), 0 ),
             low_stock_alert: Number( fd.get( 'low_stock_alert' ) ),
             stock_status: fd.get( 'stock_status' ) as string,
 
@@ -142,6 +202,7 @@ export function ProductForm ()
             collar: fd.get( 'collar' ) as string,
             occasion: fd.get( 'occasion' ) as string,
             season: fd.get( 'season' ) as string,
+            styleOrigin: initialData?.styleOrigin || 'Scotland',
 
             // Shipping
             weight: fd.get( 'weight' ) as string,
@@ -165,14 +226,14 @@ export function ProductForm ()
 
         try
         {
-            const res = await fetch( '/api/admin/products', {
-                method: 'POST',
+            const res = await fetch( initialData ? `/api/admin/products/${ initialData.id }` : '/api/admin/products', {
+                method: initialData ? 'PUT' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify( rawData ),
             } );
             if ( res.ok )
             {
-                alert( '✅ Product saved successfully!' );
+                alert( initialData ? '✅ Product updated successfully!' : '✅ Product saved successfully!' );
                 router.push( '/admin/products' );
             } else
             {
@@ -194,10 +255,10 @@ export function ProductForm ()
             <SectionCard title="📋 Basic Information">
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Field label="Product Name *">
-                        <input name="name" required className="input w-full" placeholder="e.g. Glen Brushed Overshirt" />
+                        <input name="name" required className="input w-full" placeholder="e.g. Glen Brushed Overshirt" defaultValue={ initialData?.name } />
                     </Field>
                     <Field label="SKU *">
-                        <input name="sku" required className="input w-full" placeholder="SC-001" />
+                        <input name="sku" required className="input w-full" placeholder="SC-001" defaultValue={ initialData?.sku } />
                     </Field>
 
                     {/* Category */ }
@@ -240,7 +301,7 @@ export function ProductForm ()
                     </div>
 
                     <Field label="Gender *">
-                        <select name="gender" required className="input w-full">
+                        <select name="gender" required className="input w-full" defaultValue={ initialData?.gender || '' }>
                             <option value="">-- Select --</option>
                             <option value="Men">Men</option>
                             <option value="Women">Women</option>
@@ -252,11 +313,11 @@ export function ProductForm ()
                     </Field>
 
                     <Field label="Short Description">
-                        <input name="short_description" className="input w-full" placeholder="One-line product summary" />
+                        <input name="short_description" className="input w-full" placeholder="One-line product summary" defaultValue={ initialData?.shortDescription } />
                     </Field>
 
                     <Field label="Description *" full>
-                        <textarea name="description" required minLength={ 10 } className="input w-full min-h-28" placeholder="Detailed product description (min 10 chars)" />
+                        <textarea name="description" required minLength={ 10 } className="input w-full min-h-28" placeholder="Detailed product description (min 10 chars)" defaultValue={ initialData?.description } />
                     </Field>
                 </div>
             </SectionCard>
@@ -271,7 +332,7 @@ export function ProductForm ()
                         <input name="selling_price" required type="number" min="1" className="input w-full" placeholder="799" value={ sellingPrice } onChange={ e => setSellingPrice( e.target.value ) } />
                     </Field>
                     <Field label="Cost Price (₹) — optional">
-                        <input name="cost_price" type="number" min="0" className="input w-full" placeholder="400" />
+                        <input name="cost_price" type="number" min="0" className="input w-full" placeholder="400" defaultValue={ initialData?.cost_price } />
                     </Field>
                     <Field label="Discount">
                         <div className="input w-full bg-zinc-50 flex items-center gap-2">
@@ -282,7 +343,7 @@ export function ProductForm ()
                         </div>
                     </Field>
                     <Field label="GST">
-                        <select name="gst" className="input w-full">
+                        <select name="gst" className="input w-full" defaultValue={ initialData?.gst || '0%' }>
                             { GST_OPTIONS.map( g => <option key={ g } value={ g }>{ g }</option> ) }
                         </select>
                     </Field>
@@ -295,6 +356,12 @@ export function ProductForm ()
                 <div>
                     <p className="text-xs text-zinc-600 font-medium mb-2">Sizes * <span className="text-zinc-400 font-normal">(select all that apply)</span></p>
                     <div className="flex flex-wrap gap-2">
+                        { selectedSizes.filter( size => !SIZES_LIST.includes( size ) ).map( size => (
+                            <button key={ size } type="button" onClick={ () => toggleSize( size ) }
+                                className="h-9 w-12 border border-navy bg-navy text-xs font-mono text-white transition">
+                                { size }
+                            </button>
+                        ) ) }
                         { SIZES_LIST.map( s => (
                             <button key={ s } type="button" onClick={ () => toggleSize( s ) }
                                 className={ `h-9 w-12 border text-xs font-mono transition ${ selectedSizes.includes( s ) ? 'border-navy bg-navy text-white' : 'border-stone hover:border-navy' }` }>
@@ -315,6 +382,12 @@ export function ProductForm ()
                                 { c }
                             </button>
                         ) ) }
+                        { selectedColors.filter( color => !COLORS_LIST.includes( color ) ).map( color => (
+                            <button key={ color } type="button" onClick={ () => toggleColor( color ) }
+                                className="border border-navy bg-navy px-3 py-1.5 text-xs text-white transition">
+                                { color }
+                            </button>
+                        ) ) }
                     </div>
                     <div className="mt-3 flex gap-2">
                         <input className="input flex-1" placeholder="Add custom color (e.g. Cobalt Blue)" value={ customColor } onChange={ e => setCustomColor( e.target.value ) } onKeyDown={ e => e.key === 'Enter' && ( e.preventDefault(), addCustomColor() ) } />
@@ -322,6 +395,41 @@ export function ProductForm ()
                     </div>
                     { selectedColors.length > 0 && <p className="mt-2 text-[11px] text-green-700">✓ Selected: <strong>{ selectedColors.join( ', ' ) }</strong></p> }
                 </div>
+
+                { selectedSizes.length > 0 && selectedColors.length > 0 && (
+                    <div className="bg-zinc-50 p-4 border border-stone rounded">
+                        <p className="text-xs text-navy font-semibold uppercase tracking-wider mb-3">Stock per Color and Size</p>
+                        <div className="space-y-4">
+                            { selectedColors.map( color => (
+                                <div key={ color }>
+                                    <p className="mb-2 text-xs font-semibold text-zinc-600">{ color }</p>
+                                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                        { selectedSizes.map( size => {
+                                            const key = variantKey( color, size );
+                                            return (
+                                                <label className="text-[10px] uppercase text-zinc-500 font-bold tracking-widest" key={ key }>
+                                                    { size } Size
+                                                    <input
+                                                        type="number" min="0" step="1"
+                                                        className="input w-full mt-1 bg-white"
+                                                        value={ variantStock[ key ] ?? 0 }
+                                                        onChange={ event => setVariantStock( current => ( { ...current, [ key ]: Math.max( 0, Number( event.target.value ) || 0 ) } ) ) }
+                                                    />
+                                                </label>
+                                            );
+                                        } ) }
+                                    </div>
+                                </div>
+                            ) ) }
+                        </div>
+                        <p className="mt-4 border-t border-stone pt-3 text-sm font-semibold text-navy">
+                            Total stock: { selectedColors.reduce( ( total, color ) => total + selectedSizes.reduce(
+                                ( sizeTotal, size ) => sizeTotal + ( Number( variantStock[ variantKey( color, size ) ] ) || 0 ),
+                                0
+                            ), 0 ) }
+                        </p>
+                    </div>
+                ) }
             </SectionCard>
 
             {/* ── 4. Images ── */ }
@@ -379,17 +487,18 @@ export function ProductForm ()
             <SectionCard title="👕 Product Details">
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     { [
-                        { name: 'fabric', label: 'Fabric', placeholder: 'e.g. 100% Cotton' },
-                        { name: 'material', label: 'Material', placeholder: 'e.g. Woven' },
-                        { name: 'fit', label: 'Fit', placeholder: 'e.g. Regular / Slim / Oversized' },
-                        { name: 'pattern', label: 'Pattern', placeholder: 'e.g. Solid / Striped / Checked' },
-                        { name: 'sleeve', label: 'Sleeve', placeholder: 'e.g. Half / Full / Sleeveless' },
-                        { name: 'collar', label: 'Collar', placeholder: 'e.g. Round / Polo / Mandarin' },
-                        { name: 'occasion', label: 'Occasion', placeholder: 'e.g. Casual / Formal / Party' },
-                        { name: 'season', label: 'Season', placeholder: 'e.g. Summer / Winter / All Season' },
+                        { name: 'fabric', label: 'Fabric', placeholder: 'e.g. 100% Cotton', value: initialData?.fabric },
+                        { name: 'material', label: 'Material', placeholder: 'e.g. Woven', value: initialData?.material },
+                        { name: 'fit', label: 'Fit', placeholder: 'e.g. Regular / Slim / Oversized', value: initialData?.fit },
+                        { name: 'pattern', label: 'Pattern', placeholder: 'e.g. Solid / Striped / Checked', value: initialData?.pattern },
+                        { name: 'sleeve', label: 'Sleeve', placeholder: 'e.g. Half / Full / Sleeveless', value: initialData?.sleeve },
+                        { name: 'collar', label: 'Collar', placeholder: 'e.g. Round / Polo / Mandarin', value: initialData?.collar },
+                        { name: 'occasion', label: 'Occasion', placeholder: 'e.g. Casual / Formal / Party', value: initialData?.occasion },
+                        { name: 'season', label: 'Season', placeholder: 'e.g. Summer / Winter / All Season', value: initialData?.season },
+                        { name: 'styleOrigin', label: 'Style Origin', placeholder: 'e.g. Scotland', value: initialData?.styleOrigin },
                     ].map( f => (
                         <Field key={ f.name } label={ f.label }>
-                            <input name={ f.name } className="input w-full" placeholder={ f.placeholder } />
+                            <input name={ f.name } className="input w-full" placeholder={ f.placeholder } defaultValue={ f.value || '' } />
                         </Field>
                     ) ) }
                 </div>
@@ -398,14 +507,11 @@ export function ProductForm ()
             {/* ── 6. Inventory ── */ }
             <SectionCard title="📦 Inventory">
                 <div className="grid gap-4 sm:grid-cols-3">
-                    <Field label="Total Stock *">
-                        <input name="stock" required type="number" min="0" className="input w-full" placeholder="100" />
-                    </Field>
                     <Field label="Low Stock Alert">
-                        <input name="low_stock_alert" type="number" min="0" className="input w-full" placeholder="10" />
+                        <input name="low_stock_alert" type="number" min="0" className="input w-full" placeholder="10" defaultValue={ initialData?.low_stock_alert ?? 10 } />
                     </Field>
                     <Field label="Stock Status">
-                        <select name="stock_status" className="input w-full">
+                        <select name="stock_status" className="input w-full" defaultValue={ initialData?.stock_status || 'in_stock' }>
                             <option value="in_stock">In Stock</option>
                             <option value="out_of_stock">Out of Stock</option>
                             <option value="preorder">Pre-Order</option>
@@ -418,13 +524,13 @@ export function ProductForm ()
             <SectionCard title="🚚 Shipping">
                 <div className="grid gap-4 sm:grid-cols-3">
                     <Field label="Weight (grams)">
-                        <input name="weight" type="text" className="input w-full" placeholder="e.g. 300g" />
+                        <input name="weight" type="text" className="input w-full" placeholder="e.g. 300g" defaultValue={ initialData?.weight } />
                     </Field>
                     <Field label="Dimensions (cm)">
-                        <input name="dimensions" type="text" className="input w-full" placeholder="L × W × H" />
+                        <input name="dimensions" type="text" className="input w-full" placeholder="L × W × H" defaultValue={ initialData?.dimensions } />
                     </Field>
                     <Field label="Cash on Delivery">
-                        <select name="cod" className="input w-full">
+                        <select name="cod" className="input w-full" defaultValue={ initialData?.cod === false ? 'no' : 'yes' }>
                             <option value="yes">Available</option>
                             <option value="no">Not Available</option>
                         </select>
@@ -436,13 +542,13 @@ export function ProductForm ()
             <SectionCard title="🔍 SEO">
                 <div className="grid gap-4">
                     <Field label="SEO Title">
-                        <input name="seo_title" className="input w-full" placeholder="e.g. Buy Glen Brushed Overshirt Online – Scotland" />
+                        <input name="seo_title" className="input w-full" placeholder="e.g. Buy Glen Brushed Overshirt Online – Scotland" defaultValue={ initialData?.seo_title } />
                     </Field>
                     <Field label="Meta Description">
-                        <textarea name="meta_description" className="input w-full min-h-16" placeholder="Brief description for search engines (max 160 chars)" maxLength={ 160 } />
+                        <textarea name="meta_description" className="input w-full min-h-16" placeholder="Brief description for search engines (max 160 chars)" maxLength={ 160 } defaultValue={ initialData?.meta_description } />
                     </Field>
                     <Field label="Tags (comma separated)">
-                        <input name="tags" className="input w-full" placeholder="e.g. shirt, men fashion, casual wear, scotland" />
+                        <input name="tags" className="input w-full" placeholder="e.g. shirt, men fashion, casual wear, scotland" defaultValue={ initialData?.tags?.join( ', ' ) } />
                     </Field>
                 </div>
             </SectionCard>
@@ -468,7 +574,12 @@ export function ProductForm ()
                             { id: 'best_seller', label: '🔥 Best Seller' },
                         ].map( ( { id, label } ) => (
                             <label key={ id } className="flex items-center gap-2 text-xs cursor-pointer">
-                                <input id={ id } type="checkbox" className="h-4 w-4 accent-navy" />
+                                <input
+                                    id={ id }
+                                    type="checkbox"
+                                    className="h-4 w-4 accent-navy"
+                                    defaultChecked={ id === 'featured' ? initialData?.featured : id === 'new_arrival' ? initialData?.isNew : initialData?.best_seller }
+                                />
                                 { label }
                             </label>
                         ) ) }
@@ -479,7 +590,7 @@ export function ProductForm ()
             {/* Submit */ }
             <div className="flex gap-3 pb-8">
                 <button type="submit" disabled={ loading } className="button flex-1">
-                    { loading ? 'Saving...' : status === 'published' ? '🚀 Publish Product' : '💾 Save as Draft' }
+                    { loading ? 'Saving...' : initialData ? '💾 Update Product' : status === 'published' ? '🚀 Publish Product' : '💾 Save as Draft' }
                 </button>
                 <button type="button" onClick={ () => router.back() } className="border border-stone px-6 py-2 text-xs hover:border-navy transition">
                     Cancel

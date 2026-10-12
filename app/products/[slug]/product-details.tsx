@@ -28,6 +28,7 @@ export function ProductDetails ( { product }: { product: Product } )
   const [ shareStatus, setShareStatus ] = useState( '' );
   const [ activeImg, setActiveImg ] = useState( 0 );
   const [ activeTab, setActiveTab ] = useState<'details' | 'shipping'>( 'details' );
+  const [ inventoryVariants, setInventoryVariants ] = useState( product.inventoryVariants );
   const { addToCart, toggleFavorite, favorites } = useStore();
 
   const handleAddToBag = () =>
@@ -70,11 +71,13 @@ export function ProductDetails ( { product }: { product: Product } )
   const [ similar, setSimilar ] = useState<Product[]>( [] );
   useEffect( () =>
   {
-    fetch( '/api/products', { cache: 'no-store' } )
+    fetch( '/api/products?fresh=1', { cache: 'no-store' } )
       .then( r => r.json() )
       .then( data =>
       {
         const all: Product[] = data.data;
+        const currentProduct = all.find( p => p.id === product.id );
+        if ( currentProduct ) setInventoryVariants( currentProduct.inventoryVariants );
         const filtered = all.filter( p => p.category === product.category && p.id !== product.id ).slice( 0, 8 );
         setSimilar( filtered.length > 0 ? filtered : all.filter( p => p.id !== product.id ).slice( 0, 8 ) );
       } )
@@ -84,6 +87,7 @@ export function ProductDetails ( { product }: { product: Product } )
   const discount = product.mrp && product.salePrice
     ? Math.round( ( ( product.mrp - product.salePrice ) / product.mrp ) * 100 )
     : product.discount || 0;
+  const selectedVariantStock = inventoryVariants?.find( variant => variant.size === size && variant.color === color )?.stockQuantity;
 
   return (
     <>
@@ -188,7 +192,11 @@ export function ProductDetails ( { product }: { product: Product } )
             </div>
 
             {/* Stock status */ }
-            { product.stock_status && (
+            { selectedVariantStock !== undefined ? (
+              <p className={ `text-xs font-semibold ${ selectedVariantStock > 0 ? selectedVariantStock <= 3 ? 'text-amber-600' : 'text-green-600' : 'text-red-500' }` }>
+                { selectedVariantStock > 0 ? `${ selectedVariantStock } available in this size and color` : 'Out of stock in this size and color' }
+              </p>
+            ) : product.stock_status && (
               <p className={ `text-xs font-semibold ${ product.stock_status === 'in_stock' ? 'text-green-600' : product.stock_status === 'out_of_stock' ? 'text-red-500' : 'text-amber-500' }` }>
                 { product.stock_status === 'in_stock' ? '✅ In Stock' : product.stock_status === 'out_of_stock' ? '❌ Out of Stock' : '🔔 Pre-Order' }
               </p>
@@ -207,7 +215,7 @@ export function ProductDetails ( { product }: { product: Product } )
               onClick={ handleAddToBag }
               className="button w-full disabled:opacity-40 disabled:cursor-not-allowed"
               type="button"
-              disabled={ product.status === 'draft' }
+              disabled={ product.status === 'draft' || selectedVariantStock === 0 }
             >
               { product.status === 'draft' ? '🚫 Not Available' : added ? '✓ Added to bag' : 'Add to bag' }
             </button>

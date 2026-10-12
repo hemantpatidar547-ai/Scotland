@@ -1,114 +1,133 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/ssr-server';
-import { getDb } from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
-
-const VALID_STATUSES = [ 'pending', 'confirmed', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered', 'cancelled', 'returned', 'refunded' ];
+import { getSupabaseAdmin } from '@/lib/supabase/db';
 
 async function requireAdmin ()
 {
     const supabase = await createClient();
     const { data: { user }, error } = await supabase.auth.getUser();
-    if ( error || !user || user.email !== process.env.ADMIN_EMAIL )
-        return null;
+    const adminEmails = [ 'patidarhemant226@gmail.com', 'hemantpatidar547@gmail.com', process.env.ADMIN_EMAIL ];
+    if ( error || !user || !adminEmails.includes( user.email ) ) return null;
     return user;
 }
+
+const VALID_STATUSES = [ 'pending', 'confirmed', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered', 'cancelled', 'returned', 'refunded' ];
 
 /* ── GET /api/admin/orders ─── */
 export async function GET ( req: NextRequest )
 {
     try
     {
-        if ( !await requireAdmin() )
-            return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+        if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
         const { searchParams } = new URL( req.url );
         const status = searchParams.get( 'status' );
         const search = searchParams.get( 'search' );
         const page = parseInt( searchParams.get( 'page' ) || '1' );
         const limit = parseInt( searchParams.get( 'limit' ) || '20' );
+        const fromDate = searchParams.get( 'from_date' );
+        const toDate = searchParams.get( 'to_date' );
 
-        const db = await getDb();
-        const query: any = {};
+        const db = getSupabaseAdmin();
 
-        if ( status && status !== 'all' ) query.orderStatus = status;
-        if ( search ) query.$or = [
-            { orderNumber: { $regex: search, $options: 'i' } },
-            { 'shippingAddress.name': { $regex: search, $options: 'i' } },
-            { userEmail: { $regex: search, $options: 'i' } },
-        ];
+        // Base query for stats (unpaginated, only fetching required fields for stats)
+        let statsQuery = db.from( 'orders' ).select( 'final_amount, order_status' );
 
-        const total = await db.collection( 'orders' ).countDocuments( query );
-        const orders = await db.collection( 'orders' )
-            .find( query )
-            .sort( { createdAt: -1 } )
-            .skip( ( page - 1 ) * limit )
-            .limit( limit )
-            .toArray();
+        // Base query for paginated results
+        let query = db.from( 'orders' ).select( '*', { count: 'exact' } ).order( 'created_at', { ascending: false } );
+
+        if ( status && status !== 'all' )
+        {
+            statsQuery = statsQuery.eq( 'order_status', status );
+            query = query.eq( 'order_status', status );
+        }
+
+        if ( search )
+        {
+            const orString = 'order_number.ilike.%' + search + '%,user_email.ilike.%' + search + '%,shipping_address->>name.ilike.%' + search + '%,shipping_address->>phone.ilike.%' + search + '%';
+            statsQuery = statsQuery.or( orString );
+            query = query.or( orString );
+        }
+
+        if ( fromDate )
+        {
+            statsQuery = statsQuery.gte( 'created_at', fromDate );
+            query = query.gte( 'created_at', fromDate );
+        }
+        if ( toDate )
+        {
+            statsQuery = statsQuery.lte( 'created_at', toDate );
+            query = query.lte( 'created_at', toDate );
+        }
+
+        const from = ( page - 1 ) * limit;
+        query = query.range( from, from + limit - 1 );
+
+        const { data: orders, count } = await query;
+
+        const mappedOrders = ( orders || [] ).map( o => ( {
+            _id: o.id,
+            orderNumber: o.order_number,
+            userEmail: o.user_email || o.email,
+            finalAmount: o.final_amount,
+            orderStatus: o.order_status,
+            paymentMethod: o.payment_method,
+            paymentStatus: o.payment_status,
+            shippingAddress: o.shipping_address,
+            items: o.items,
+            createdAt: o.created_at,
+        } ) );
+
+        const { data: statsData } = await statsQuery;
+
+        const summary = {
+            totalOrders: statsData?.length || 0,
+            totalSales: statsData?.reduce( ( sum, o ) => sum + ( o.final_amount || 0 ), 0 ) || 0,
+            newOrders: statsData?.filter( o => o.order_status === 'new' ).length || 0,
+            pendingOrders: statsData?.filter( o => o.order_status === 'pending' ).length || 0,
+            processingOrders: statsData?.filter( o => o.order_status === 'processing' ).length || 0,
+            shippedOrders: statsData?.filter( o => o.order_status === 'shipped' ).length || 0,
+            deliveredOrders: statsData?.filter( o => o.order_status === 'delivered' ).length || 0,
+            cancelledOrders: statsData?.filter( o => o.order_status === 'cancelled' ).length || 0,
+            refundedOrders: statsData?.filter( o => o.order_status === 'refunded' ).length || 0,
+        };
 
         return NextResponse.json( {
-            data: orders.map( o => ( { ...o, _id: o._id.toString() } ) ),
-            total,
+            data: mappedOrders,
+            summary,
+            total: count || 0,
             page,
-            totalPages: Math.ceil( total / limit ),
+            totalPages: Math.ceil( ( count || 0 ) / limit ),
         } );
-    }
-    catch ( err )
+    } catch ( err )
     {
         console.error( 'Admin orders GET error:', err );
         return NextResponse.json( { error: 'Failed to fetch orders' }, { status: 500 } );
     }
 }
 
-/* ── PATCH /api/admin/orders  (update order status) ─── */
+/* ── PATCH /api/admin/orders ─── */
 export async function PATCH ( req: NextRequest )
 {
     try
     {
-        if ( !await requireAdmin() )
-            return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+        if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
         const { orderId, orderStatus, paymentStatus } = await req.json();
-
         if ( !orderId ) return NextResponse.json( { error: 'Order ID required' }, { status: 400 } );
         if ( orderStatus && !VALID_STATUSES.includes( orderStatus ) )
             return NextResponse.json( { error: 'Invalid order status' }, { status: 400 } );
 
-        const db = await getDb();
-        const upd: any = { updatedAt: new Date() };
-        if ( orderStatus ) upd.orderStatus = orderStatus;
-        if ( paymentStatus ) upd.paymentStatus = paymentStatus;
+        const db = getSupabaseAdmin();
+        const upd: any = { updated_at: new Date().toISOString() };
+        if ( orderStatus ) upd.order_status = orderStatus;
+        if ( paymentStatus ) upd.payment_status = paymentStatus;
 
-        const result = await db.collection( 'orders' ).updateOne(
-            { _id: new ObjectId( orderId ) },
-            { $set: upd }
-        );
-
-        if ( result.matchedCount === 0 )
-            return NextResponse.json( { error: 'Order not found' }, { status: 404 } );
-
-        /* Restore stock when cancelled */
-        if ( orderStatus === 'cancelled' )
-        {
-            const order = await db.collection( 'orders' ).findOne( { _id: new ObjectId( orderId ) } );
-            if ( order?.items )
-            {
-                for ( const item of order.items )
-                {
-                    try
-                    {
-                        await db.collection( 'products' ).updateOne(
-                            { _id: new ObjectId( item.productId ) },
-                            { $inc: { stock: item.quantity } }
-                        );
-                    } catch { /* ignore */ }
-                }
-            }
-        }
+        const { error } = await db.from( 'orders' ).update( upd ).eq( 'id', orderId );
+        if ( error ) throw error;
 
         return NextResponse.json( { success: true } );
-    }
-    catch ( err )
+    } catch ( err )
     {
         console.error( 'Admin orders PATCH error:', err );
         return NextResponse.json( { error: 'Failed to update order' }, { status: 500 } );

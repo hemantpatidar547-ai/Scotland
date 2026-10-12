@@ -1,8 +1,112 @@
 'use client';
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Product } from '@/types/product';
-type CartItem={product:Product; size:string; color:string; quantity:number};
-type Store={cart:CartItem[]; favorites:string[]; addToCart:(product:Product,size:string,color:string)=>void; removeFromCart:(id:string)=>void; setQty:(id:string,quantity:number)=>void; toggleFavorite:(id:string)=>void};
-const StoreContext=createContext<Store | null>(null);
-export function StoreProvider({children}:{children:React.ReactNode}) { const [cart,setCart]=useState<CartItem[]>([]);const [favorites,setFavorites]=useState<string[]>([]);const [hydrated,setHydrated]=useState(false);useEffect(()=>{try{setCart(JSON.parse(localStorage.getItem('scotland-cart')||'[]'));setFavorites(JSON.parse(localStorage.getItem('scotland-favorites')||'[]'))}catch{setCart([]);setFavorites([])}finally{setHydrated(true)}},[]);useEffect(()=>{if(hydrated)localStorage.setItem('scotland-cart',JSON.stringify(cart))},[cart,hydrated]);useEffect(()=>{if(hydrated)localStorage.setItem('scotland-favorites',JSON.stringify(favorites))},[favorites,hydrated]);const value=useMemo(()=>({cart,favorites,addToCart:(product:Product,size:string,color:string)=>setCart(x=>{const found=x.find(i=>i.product.id===product.id&&i.size===size&&i.color===color);return found?x.map(i=>i===found?{...i,quantity:i.quantity+1}:i):[...x,{product,size,color,quantity:1}]}),removeFromCart:(id:string)=>setCart(x=>x.filter(i=>i.product.id!==id)),setQty:(id:string,quantity:number)=>setCart(x=>x.map(i=>i.product.id===id?{...i,quantity}:i).filter(i=>i.quantity>0)),toggleFavorite:(id:string)=>setFavorites(x=>x.includes(id)?x.filter(i=>i!==id):[...x,id])}),[cart,favorites]);return <StoreContext.Provider value={value}>{children}</StoreContext.Provider> }
-export const useStore=()=>{const c=useContext(StoreContext);if(!c)throw new Error('StoreProvider missing');return c};
+
+type CartItem = { product: Product; size: string; color: string; quantity: number };
+type Store = {
+    cart: CartItem[];
+    favorites: string[];
+    addToCart: ( product: Product, size: string, color: string ) => void;
+    removeFromCart: ( id: string ) => void;
+    setQty: ( id: string, quantity: number ) => void;
+    toggleFavorite: ( id: string ) => void;
+    clearCart: () => void;
+};
+
+const StoreContext = createContext<Store | null>( null );
+
+const compressProductForCart = ( p: Product ): Product => ( {
+    ...p,
+    description: '',
+    shortDescription: '',
+    images: [], // don't need secondary images in cart, preventing QuotaExceededError
+    // Keep 'image' intact so it displays the correct image in the cart!
+} );
+
+export function StoreProvider ( { children }: { children: React.ReactNode } ) 
+{
+    const [ cart, setCart ] = useState<CartItem[]>( [] );
+    const [ favorites, setFavorites ] = useState<string[]>( [] );
+    const [ hydrated, setHydrated ] = useState( false );
+
+    useEffect( () =>
+    {
+        try
+        {
+            const c = JSON.parse( localStorage.getItem( 'scotland-cart' ) || '[]' );
+            const f = JSON.parse( localStorage.getItem( 'scotland-favorites' ) || '[]' );
+            setCart( Array.isArray( c ) ? c : [] );
+            setFavorites( Array.isArray( f ) ? f : [] );
+        } catch
+        {
+            setCart( [] );
+            setFavorites( [] );
+        } finally
+        {
+            setHydrated( true );
+        }
+    }, [] );
+
+    useEffect( () =>
+    {
+        if ( hydrated )
+        {
+            try
+            {
+                localStorage.setItem( 'scotland-cart', JSON.stringify( cart ) );
+            } catch ( e )
+            {
+                console.warn( "Storage quota exceeded for cart, clearing old items.", e );
+                // Emergency fallback: just keep the last added item if it's blowing up
+                if ( cart.length > 0 )
+                {
+                    localStorage.setItem( 'scotland-cart', JSON.stringify( [ cart[ cart.length - 1 ] ] ) );
+                }
+            }
+        }
+    }, [ cart, hydrated ] );
+
+    useEffect( () =>
+    {
+        if ( hydrated )
+        {
+            try
+            {
+                localStorage.setItem( 'scotland-favorites', JSON.stringify( favorites ) );
+            } catch ( e ) { }
+        }
+    }, [ favorites, hydrated ] );
+
+    const value = useMemo( () => ( {
+        cart: cart || [],
+        favorites: favorites || [],
+        addToCart: ( product: Product, size: string, color: string ) => setCart( x =>
+        {
+            const state = x || [];
+            const found = state.find( i => i.product.id === product.id && i.size === size && i.color === color );
+
+            if ( found )
+            {
+                return state.map( i => i === found ? { ...i, quantity: i.quantity + 1 } : i );
+            } else
+            {
+                // Compress product object before saving to prevent LocalStorage 5MB QuotaExceededError
+                const compressedProduct = compressProductForCart( product );
+                return [ ...state, { product: compressedProduct, size, color, quantity: 1 } ];
+            }
+        } ),
+        removeFromCart: ( id: string ) => setCart( x => ( x || [] ).filter( i => i.product.id !== id ) ),
+        setQty: ( id: string, quantity: number ) => setCart( x => ( x || [] ).map( i => i.product.id === id ? { ...i, quantity } : i ).filter( i => i.quantity > 0 ) ),
+        toggleFavorite: ( id: string ) => setFavorites( x => ( x || [] ).includes( id ) ? ( x || [] ).filter( i => i !== id ) : [ ...( x || [] ), id ] ),
+        clearCart: () => setCart( [] )
+    } ), [ cart, favorites ] );
+
+    return <StoreContext.Provider value={ value }>{ children }</StoreContext.Provider>
+}
+
+export const useStore = () =>
+{
+    const c = useContext( StoreContext );
+    if ( !c ) throw new Error( 'StoreProvider missing' );
+    return c;
+};

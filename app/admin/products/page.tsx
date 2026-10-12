@@ -1,2 +1,22 @@
-import Link from 'next/link'; import { getAdminProducts } from '@/lib/data'; import { DeleteProductButton } from '@/components/DeleteProductButton'; import { ProductStatusToggle } from '@/components/ProductStatusToggle';
-export default async function AdminProducts () { const products = await getAdminProducts(); return <main className="shell py-12"><div className="flex items-center justify-between"><div><p className="eyebrow">Catalog</p><h1 className="display mt-2 text-5xl">Products</h1></div><Link className="button" href="/admin/products/new">Add product</Link></div><div className="mt-10 overflow-x-auto bg-white"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b border-stone text-[10px] uppercase tracking-wider text-zinc-500"><tr><th className="p-4">Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead><tbody>{ products.map( p => <tr className="border-b border-stone" key={ p.id }><td className="p-4 font-semibold">{ p.name }<span className="block pt-1 text-xs font-normal text-zinc-500">{ p.slug }</span></td><td>{ p.category }</td><td>₹{ Number( p.price ).toLocaleString() }</td><td>{ p.stock }</td><td><ProductStatusToggle productId={ p.id } initialStatus={ p.status || 'draft' } /></td><td><div className="flex gap-4 items-center"><Link className="text-xs underline hover:text-navy" href={ `/admin/products/${ p.id }` }>Edit</Link><DeleteProductButton productId={ p.id } /></div></td></tr> ) }</tbody></table></div></main> }
+import Link from 'next/link';
+import { getAdminProducts } from '@/lib/data';
+import { AdminProductsTable } from '@/components/admin/AdminProductsTable';
+
+export default async function AdminProducts ()
+{
+    const products = await getAdminProducts();
+
+    return (
+        <main className="shell py-12">
+            <div className="flex items-center justify-between">
+                <div>
+                    <p className="eyebrow">Catalog</p>
+                    <h1 className="display mt-2 text-5xl">Products</h1>
+                    <p className="mt-2 text-sm text-zinc-500">Stock is shown for each size and color, and refreshes automatically.</p>
+                </div>
+                <Link className="button" href="/admin/products/new">Add product</Link>
+            </div>
+            <AdminProductsTable products={ products } />
+        </main>
+    );
+}

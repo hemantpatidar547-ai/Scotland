@@ -5,6 +5,7 @@ export type Occasion = string;
 export type Product = {
     id: string;
     slug: string;
+    sku?: string;
     name: string;
     shortDescription?: string;
     description: string;
@@ -37,6 +38,13 @@ export type Product = {
 
     // Inventory
     stock?: number;
+    sizeStock?: Record<string, number>;
+    inventoryVariants?: Array<{
+        id: string;
+        color: string;
+        size: string;
+        stockQuantity: number;
+    }>;
     stock_quantity?: number;
     low_stock_alert?: number;
     stock_status?: string;

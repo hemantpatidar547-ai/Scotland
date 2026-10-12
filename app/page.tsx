@@ -6,11 +6,7 @@ import { ItalianComboOutfits } from '@/components/ItalianComboOutfits';
 import { RotatingHeroSection } from '@/components/RotatingHeroSection';
 import { CampaignSlider } from '@/components/CampaignSlider';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
-
-
+// Revalidate every 60 seconds (ISR) — fast cached responses, stays fresh
 const heroImages = [
   {
     src: '/images/hero/photo-1496747611176-843222e1e57c.webp',
@@ -61,7 +57,7 @@ export default async function Home ()
 
     <section className="py-16 sm:py-24 bg-stone/20">
       <div className="shell flex items-end justify-between">
-        <div><p className="eyebrow text-stone/80">Signature pieces</p><h2 className="display mt-3 text-4xl">Wardrobe essentials.</h2></div>
+        <div><p className="eyebrow text-stone/80">Our products</p><h2 className="display mt-3 text-4xl">Best clothes for you.</h2></div>
         <Link className="eyebrow hidden sm:block border-b border-navy pb-1" href="/shop">Explore collection</Link>
       </div>
       <div className="shell mt-10">

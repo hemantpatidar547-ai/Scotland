@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/ssr-server';
-import { getDb } from '@/lib/mongodb';
-import { ObjectId } from 'mongodb';
+import { getSupabaseAdmin } from '@/lib/supabase/db';
 
 export async function GET (
     _req: NextRequest,
@@ -15,27 +14,22 @@ export async function GET (
         const { data: { user }, error } = await supabase.auth.getUser();
         if ( error || !user ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
-        const db = await getDb();
-        let order;
-        try
-        {
-            order = await db.collection( 'orders' ).findOne( { _id: new ObjectId( id ) } );
-        }
-        catch
-        {
-            order = await db.collection( 'orders' ).findOne( { orderNumber: id } );
-        }
+        const db = getSupabaseAdmin();
+        const { data: order } = await db
+            .from( 'orders' )
+            .select( '*' )
+            .or( `id.eq.${ id },order_number.eq.${ id }` )
+            .single();
 
         if ( !order ) return NextResponse.json( { error: 'Order not found' }, { status: 404 } );
 
-        /* Only admin or the order owner can view */
-        const isAdmin = user.email === process.env.ADMIN_EMAIL;
-        if ( !isAdmin && order.userId !== user.id )
+        const adminEmails = [ 'patidarhemant226@gmail.com', 'hemantpatidar547@gmail.com', process.env.ADMIN_EMAIL ];
+        const isAdmin = adminEmails.includes( user.email );
+        if ( !isAdmin && order.user_id !== user.id )
             return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
-        return NextResponse.json( { data: { ...order, _id: order._id.toString() } } );
-    }
-    catch ( err )
+        return NextResponse.json( { data: order } );
+    } catch ( err )
     {
         console.error( 'Order detail error:', err );
         return NextResponse.json( { error: 'Failed to fetch order' }, { status: 500 } );

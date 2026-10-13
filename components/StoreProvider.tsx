@@ -1,112 +1,271 @@
 'use client';
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Product } from '@/types/product';
 
-type CartItem = { product: Product; size: string; color: string; quantity: number };
+export type CartItem = {
+    product: Product;
+    size: string;
+    color: string;
+    quantity: number;
+    variantId?: string;
+};
+
 type Store = {
     cart: CartItem[];
     favorites: string[];
+    isReady: boolean;
+    syncError: string | null;
     addToCart: ( product: Product, size: string, color: string ) => void;
-    removeFromCart: ( id: string ) => void;
-    setQty: ( id: string, quantity: number ) => void;
+    removeFromCart: ( itemKey: string ) => void;
+    setQty: ( itemKey: string, quantity: number ) => void;
     toggleFavorite: ( id: string ) => void;
     clearCart: () => void;
 };
 
+type StoredAccountState = {
+    userId: string;
+    cart: Array<CartItem & { productId: string }>;
+    favorites: string[];
+};
+
 const StoreContext = createContext<Store | null>( null );
+const GUEST_CART_KEY = 'scotland-cart';
+const GUEST_FAVORITES_KEY = 'scotland-favorites';
 
-const compressProductForCart = ( p: Product ): Product => ( {
-    ...p,
-    description: '',
-    shortDescription: '',
-    images: [], // don't need secondary images in cart, preventing QuotaExceededError
-    // Keep 'image' intact so it displays the correct image in the cart!
-} );
+export function cartItemKey ( item: Pick<CartItem, 'product' | 'size' | 'color'> ): string
+{
+    return `${ item.product.id }::${ item.color }::${ item.size }`;
+}
 
-export function StoreProvider ( { children }: { children: React.ReactNode } ) 
+function compressProductForCart ( product: Product ): Product
+{
+    return { ...product, description: '', shortDescription: '', images: [] };
+}
+
+function toServerCart ( cart: CartItem[] )
+{
+    return cart.flatMap( item => item.variantId ? [ {
+        productId: item.product.id,
+        variantId: item.variantId,
+        size: item.size,
+        color: item.color,
+        quantity: item.quantity,
+    } ] : [] );
+}
+
+export function StoreProvider ( { children }: { children: React.ReactNode } )
 {
     const [ cart, setCart ] = useState<CartItem[]>( [] );
     const [ favorites, setFavorites ] = useState<string[]>( [] );
     const [ hydrated, setHydrated ] = useState( false );
+    const [ accountId, setAccountId ] = useState<string | null>( null );
+    const [ readyToSync, setReadyToSync ] = useState( false );
+    const [ syncError, setSyncError ] = useState<string | null>( null );
 
-    useEffect( () =>
+    const applyAccountState = useCallback( ( state: StoredAccountState ) =>
     {
-        try
-        {
-            const c = JSON.parse( localStorage.getItem( 'scotland-cart' ) || '[]' );
-            const f = JSON.parse( localStorage.getItem( 'scotland-favorites' ) || '[]' );
-            setCart( Array.isArray( c ) ? c : [] );
-            setFavorites( Array.isArray( f ) ? f : [] );
-        } catch
-        {
-            setCart( [] );
-            setFavorites( [] );
-        } finally
-        {
-            setHydrated( true );
-        }
+        setAccountId( state.userId );
+        setSyncError( null );
+        setCart( state.cart.map( item => ( {
+            product: compressProductForCart( item.product ),
+            size: item.size,
+            color: item.color,
+            quantity: item.quantity,
+            variantId: item.variantId,
+        } ) ) );
+        setFavorites( state.favorites );
     }, [] );
 
     useEffect( () =>
     {
-        if ( hydrated )
+        let active = true;
+
+        const initialize = async () =>
         {
+            let guestCart: CartItem[] = [];
+            let guestFavorites: string[] = [];
             try
             {
-                localStorage.setItem( 'scotland-cart', JSON.stringify( cart ) );
-            } catch ( e )
+                const rawCart = JSON.parse( localStorage.getItem( GUEST_CART_KEY ) || '[]' );
+                const rawFavorites = JSON.parse( localStorage.getItem( GUEST_FAVORITES_KEY ) || '[]' );
+                guestCart = Array.isArray( rawCart ) ? rawCart.map( ( item: CartItem ) => ( {
+                    ...item,
+                    variantId: item.variantId || item.product?.inventoryVariants?.find(
+                        variant => variant.size === item.size && variant.color === item.color
+                    )?.id,
+                } ) ).filter( item => item.product?.id && item.quantity > 0 ) : [];
+                guestFavorites = Array.isArray( rawFavorites ) ? rawFavorites : [];
+            } catch ( error )
             {
-                console.warn( "Storage quota exceeded for cart, clearing old items.", e );
-                // Emergency fallback: just keep the last added item if it's blowing up
-                if ( cart.length > 0 )
-                {
-                    localStorage.setItem( 'scotland-cart', JSON.stringify( [ cart[ cart.length - 1 ] ] ) );
-                }
+                console.warn( 'Could not restore the guest shopping session.', error );
             }
-        }
-    }, [ cart, hydrated ] );
+
+            if ( !active ) return;
+            setCart( guestCart );
+            setFavorites( guestFavorites );
+            setHydrated( true );
+
+            try
+            {
+                const response = await fetch( '/api/account/store', { cache: 'no-store' } );
+                if ( response.status === 401 )
+                {
+                    if ( active ) setReadyToSync( true );
+                    return;
+                }
+                const result = await response.json();
+                if ( !response.ok ) throw new Error( result.error || 'Could not load account cart.' );
+
+                const accountState = result.data as StoredAccountState;
+                const guestItems = guestCart.flatMap( item => item.variantId ? [ {
+                    productId: item.product.id,
+                    variantId: item.variantId,
+                    size: item.size,
+                    color: item.color,
+                    quantity: item.quantity,
+                } ] : [] );
+                const guestWishlist = guestFavorites.filter( id => typeof id === 'string' && id.trim().length > 0 );
+
+                if ( guestItems.length || guestWishlist.length )
+                {
+                    const merged = await fetch( '/api/account/store', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify( { cart: guestItems, favorites: guestWishlist } ),
+                    } );
+                    const mergedResult = await merged.json();
+                    if ( !merged.ok ) throw new Error( mergedResult.error || 'Could not merge guest shopping data.' );
+                    if ( !active ) return;
+                    applyAccountState( mergedResult.data as StoredAccountState );
+                    localStorage.removeItem( GUEST_CART_KEY );
+                    localStorage.removeItem( GUEST_FAVORITES_KEY );
+                } else if ( active )
+                {
+                    applyAccountState( accountState );
+                }
+            } catch ( error )
+            {
+                console.error( 'Could not synchronize the saved shopping session:', error );
+                if ( active )
+                {
+                    setSyncError( error instanceof Error ? error.message : 'Your saved cart could not be synchronized.' );
+                }
+            } finally
+            {
+                if ( active ) setReadyToSync( true );
+            }
+        };
+
+        void initialize();
+        return () => { active = false; };
+    }, [ applyAccountState ] );
 
     useEffect( () =>
     {
-        if ( hydrated )
+        if ( !hydrated || !readyToSync ) return;
+
+        const cartKey = accountId ? `scotland-cart:${ accountId }` : GUEST_CART_KEY;
+        const wishlistKey = accountId ? `scotland-favorites:${ accountId }` : GUEST_FAVORITES_KEY;
+        try
+        {
+            localStorage.setItem( cartKey, JSON.stringify( cart ) );
+            localStorage.setItem( wishlistKey, JSON.stringify( favorites ) );
+        } catch ( error )
+        {
+            console.warn( 'Could not cache the shopping session locally.', error );
+        }
+
+        if ( !accountId ) return;
+        const timer = window.setTimeout( () =>
+        {
+            void fetch( '/api/account/store', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify( {
+                    cart: toServerCart( cart ),
+                    favorites,
+                } ),
+            } ).then( async response =>
+            {
+                if ( !response.ok )
+                {
+                    const result = await response.json();
+                    console.error( 'Could not save account cart/wishlist:', result.error || response.statusText );
+                    setSyncError( result.error || 'Your saved cart could not be synchronized.' );
+                } else
+                {
+                    setSyncError( null );
+                }
+            } ).catch( error =>
+            {
+                console.error( 'Could not reach account cart service:', error );
+                setSyncError( 'Could not reach the account service. Your changes remain on this device for now.' );
+            } );
+        }, 350 );
+
+        return () => window.clearTimeout( timer );
+    }, [ accountId, cart, favorites, hydrated, readyToSync ] );
+
+    useEffect( () =>
+    {
+        if ( !accountId ) return;
+        const refreshAccountState = async () =>
         {
             try
             {
-                localStorage.setItem( 'scotland-favorites', JSON.stringify( favorites ) );
-            } catch ( e ) { }
-        }
-    }, [ favorites, hydrated ] );
-
-    const value = useMemo( () => ( {
-        cart: cart || [],
-        favorites: favorites || [],
-        addToCart: ( product: Product, size: string, color: string ) => setCart( x =>
-        {
-            const state = x || [];
-            const found = state.find( i => i.product.id === product.id && i.size === size && i.color === color );
-
-            if ( found )
+                const response = await fetch( '/api/account/store', { cache: 'no-store' } );
+                if ( response.status === 401 )
+                {
+                    setAccountId( null );
+                    return;
+                }
+                if ( !response.ok ) return;
+                const result = await response.json();
+                applyAccountState( result.data as StoredAccountState );
+            } catch ( error )
             {
-                return state.map( i => i === found ? { ...i, quantity: i.quantity + 1 } : i );
-            } else
-            {
-                // Compress product object before saving to prevent LocalStorage 5MB QuotaExceededError
-                const compressedProduct = compressProductForCart( product );
-                return [ ...state, { product: compressedProduct, size, color, quantity: 1 } ];
+                console.error( 'Could not refresh the cross-device shopping session:', error );
             }
-        } ),
-        removeFromCart: ( id: string ) => setCart( x => ( x || [] ).filter( i => i.product.id !== id ) ),
-        setQty: ( id: string, quantity: number ) => setCart( x => ( x || [] ).map( i => i.product.id === id ? { ...i, quantity } : i ).filter( i => i.quantity > 0 ) ),
-        toggleFavorite: ( id: string ) => setFavorites( x => ( x || [] ).includes( id ) ? ( x || [] ).filter( i => i !== id ) : [ ...( x || [] ), id ] ),
-        clearCart: () => setCart( [] )
-    } ), [ cart, favorites ] );
+        };
+        window.addEventListener( 'focus', refreshAccountState );
+        return () => window.removeEventListener( 'focus', refreshAccountState );
+    }, [ accountId, applyAccountState ] );
 
-    return <StoreContext.Provider value={ value }>{ children }</StoreContext.Provider>
+    const value = useMemo<Store>( () => ( {
+        cart,
+        favorites,
+        isReady: readyToSync,
+        syncError,
+        addToCart: ( product, size, color ) =>
+        {
+            const variantId = product.inventoryVariants?.find( item => item.size === size && item.color === color )?.id;
+            setCart( current =>
+            {
+                const found = current.find( item => item.product.id === product.id && item.size === size && item.color === color );
+                if ( found )
+                {
+                    return current.map( item => item === found ? { ...item, quantity: item.quantity + 1 } : item );
+                }
+                return [ ...current, { product: compressProductForCart( product ), size, color, quantity: 1, variantId } ];
+            } );
+        },
+        removeFromCart: itemKey => setCart( current => current.filter( item => cartItemKey( item ) !== itemKey ) ),
+        setQty: ( itemKey, quantity ) => setCart( current => current.map( item =>
+            cartItemKey( item ) === itemKey ? { ...item, quantity } : item
+        ).filter( item => item.quantity > 0 ) ),
+        toggleFavorite: id => setFavorites( current => current.includes( id )
+            ? current.filter( favorite => favorite !== id )
+            : [ ...current, id ] ),
+        clearCart: () => setCart( [] ),
+    } ), [ cart, favorites, readyToSync, syncError ] );
+
+    return <StoreContext.Provider value={ value }>{ children }</StoreContext.Provider>;
 }
 
 export const useStore = () =>
 {
-    const c = useContext( StoreContext );
-    if ( !c ) throw new Error( 'StoreProvider missing' );
-    return c;
+    const context = useContext( StoreContext );
+    if ( !context ) throw new Error( 'StoreProvider missing' );
+    return context;
 };

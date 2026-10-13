@@ -11,13 +11,13 @@ async function requireAdmin ()
     return user;
 }
 
-export async function POST ( req: NextRequest, { params }: { params: { id: string } } )
+export async function POST ( req: NextRequest, { params }: { params: Promise<{ id: string }> } )
 {
     try
     {
         if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
-        const orderId = params.id;
+        const { id: orderId } = await params;
         const db = getSupabaseAdmin();
 
         // Check if order already has an invoice number

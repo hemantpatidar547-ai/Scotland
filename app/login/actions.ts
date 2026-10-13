@@ -1,98 +1,103 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/ssr-server';
-import { supabaseAdmin } from '@/lib/supabase/server';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { createClient } from '@/lib/supabase/ssr-server';
+
+function safeRedirectPath ( value: FormDataEntryValue | null ): string
+{
+    const path = typeof value === 'string' ? value : '/';
+    return path.startsWith( '/' ) && !path.startsWith( '//' ) ? path : '/';
+}
+
+async function getPublicOrigin (): Promise<string>
+{
+    const requestHeaders = await headers();
+    const origin = requestHeaders.get( 'origin' );
+    if ( origin ) return origin;
+
+    const configuredOrigin = process.env.NEXT_PUBLIC_SITE_URL;
+    if ( configuredOrigin ) return configuredOrigin.replace( /\/$/, '' );
+
+    throw new Error( 'Set NEXT_PUBLIC_SITE_URL to enable account verification emails.' );
+}
 
 export async function loginAuth ( formData: FormData )
 {
-    const email = formData.get( 'email' ) as string;
-    const password = formData.get( 'password' ) as string;
-    const redirectTo = formData.get( 'redirect' ) as string || '/';
+    const email = String( formData.get( 'email' ) || '' ).trim().toLowerCase();
+    const password = String( formData.get( 'password' ) || '' );
+    const redirectTo = safeRedirectPath( formData.get( 'redirect' ) );
 
-    if ( !email || !password ) return { error: 'Email and password are required' };
+    if ( !email || !password ) return { error: 'Email and password are required.' };
 
     const supabase = await createClient();
     const { error } = await supabase.auth.signInWithPassword( { email, password } );
-
     if ( error )
     {
-        // Magical auto-fix for the specific Admin email they requested
-        if ( email.toLowerCase() === 'patidarhemant226@gmail.com' && supabaseAdmin )
-        {
-            const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
-            const adminUser = usersData.users.find( u => u.email === email );
-
-            if ( adminUser )
-            {
-                // Force update the password and confirm their email
-                await supabaseAdmin.auth.admin.updateUserById( adminUser.id, {
-                    password: password,
-                    email_confirm: true,
-                } );
-
-                // Try logging in again!
-                const { error: retryError } = await supabase.auth.signInWithPassword( { email, password } );
-                if ( !retryError ) return redirect( redirectTo );
-            }
-        }
-
         if ( error.message.toLowerCase().includes( 'not confirmed' ) )
         {
-            return { error: 'This email is stuck in an unconfirmed state from earlier. Please use a BRAND NEW fake email in the Create Account tab!' };
+            return { error: 'Please verify your email using the link we sent before signing in.' };
         }
-        return { error: error.message };
+        return { error: 'Email or password is incorrect.' };
     }
 
-    return redirect( redirectTo );
+    redirect( redirectTo );
 }
 
 export async function signupAuth ( formData: FormData )
 {
-    const email = formData.get( 'email' ) as string;
-    const password = formData.get( 'password' ) as string;
-    const name = formData.get( 'name' ) as string;
-    const redirectTo = formData.get( 'redirect' ) as string || '/';
+    const email = String( formData.get( 'email' ) || '' ).trim().toLowerCase();
+    const password = String( formData.get( 'password' ) || '' );
+    const name = String( formData.get( 'name' ) || '' ).trim();
+    const redirectTo = safeRedirectPath( formData.get( 'redirect' ) );
 
-    if ( !email || !password ) return { error: 'Email and password are required' };
+    if ( !name || name.length > 120 ) return { error: 'Enter your name (up to 120 characters).' };
+    if ( !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test( email ) ) return { error: 'Enter a valid email address.' };
+    if ( password.length < 8 ) return { error: 'Password must be at least 8 characters.' };
 
-    if ( !supabaseAdmin )
-    {
-        return { error: 'Server misconfiguration: No admin key found.' };
-    }
+    const origin = await getPublicOrigin();
+    const callback = new URL( '/api/auth/callback', origin );
+    callback.searchParams.set( 'redirect', redirectTo );
 
     const supabase = await createClient();
-
-    // Create user bypassing email confirmation using Admin API
-    const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser( {
+    const { data, error } = await supabase.auth.signUp( {
         email,
         password,
-        email_confirm: true,
-        user_metadata: {
-            full_name: name || ''
-        }
+        options: {
+            emailRedirectTo: callback.toString(),
+            data: { full_name: name },
+        },
     } );
 
-    if ( createError )
+    if ( error )
     {
-        // If user already exists, Supabase throws an error.
-        if ( createError.message.toLowerCase().includes( 'already exists' ) )
+        const message = error.message.toLowerCase();
+        if ( message.includes( 'already registered' ) || message.includes( 'already exists' ) )
         {
-            return { error: 'An account with this email already exists. Please log in.' };
+            return { error: 'An account with this email already exists. Please sign in instead.' };
         }
-        return { error: createError.message };
+        return { error: 'We could not create your account. Please check your details and try again.' };
     }
 
-    // Immediately sign them in using regular client to set cookies
-    const { error: signInError } = await supabase.auth.signInWithPassword( {
-        email,
-        password,
-    } );
+    if ( data.session ) redirect( redirectTo );
+    return { success: 'Account created. Check your email for a verification link before signing in.' };
+}
 
-    if ( signInError )
+export async function requestPasswordReset ( formData: FormData )
+{
+    const email = String( formData.get( 'email' ) || '' ).trim().toLowerCase();
+    if ( !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test( email ) ) return { error: 'Enter a valid email address.' };
+
+    const origin = await getPublicOrigin();
+    const redirectTo = new URL( '/api/auth/callback?redirect=%2Faccount%2Freset-password', origin ).toString();
+    const supabase = await createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail( email, { redirectTo } );
+
+    if ( error )
     {
-        return { error: 'Account created, but automatic login failed. Please log in manually.' };
+        console.error( 'Password reset email request failed:', error.message );
+        return { error: 'We could not send a reset email right now. Please try again later.' };
     }
 
-    return redirect( redirectTo );
+    return { success: 'If an account exists for that email, a password reset link has been sent.' };
 }

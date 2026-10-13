@@ -10,7 +10,7 @@ const DELIVERY_CHARGE = 50; // Flat ₹50 delivery for all orders
 
 export default function Checkout ()
 {
-    const { cart, clearCart } = useStore();
+    const { cart, clearCart, isReady } = useStore();
     const router = useRouter();
     const [ done, setDone ] = useState( false );
     const [ paymentMethod, setPaymentMethod ] = useState<'cod' | 'razorpay'>( 'cod' );
@@ -23,6 +23,12 @@ export default function Checkout ()
     const [ isFetchingCity, setIsFetchingCity ] = useState( false );
     const [ pinError, setPinError ] = useState( '' );
 
+    // Pre-filled user data from session
+    const [ userEmail, setUserEmail ] = useState( '' );
+    const [ userFirstName, setUserFirstName ] = useState( '' );
+    const [ userLastName, setUserLastName ] = useState( '' );
+    const [ userPhone, setUserPhone ] = useState( '' );
+
     useEffect( () =>
     {
         setMounted( true );
@@ -30,11 +36,31 @@ export default function Checkout ()
             .then( r => r.json() )
             .then( data => setDeliveryCharge( data.deliveryCharge ?? 50 ) )
             .catch( () => { } );
+
+        // Auto-fill from authenticated session
+        fetch( '/api/auth/session' )
+            .then( r => r.json() )
+            .then( data =>
+            {
+                if ( data.authenticated && data.user )
+                {
+                    const u = data.user;
+                    if ( u.email ) setUserEmail( u.email );
+                    if ( u.mobile ) setUserPhone( u.mobile );
+                    if ( u.name )
+                    {
+                        const parts = u.name.trim().split( /\s+/ );
+                        setUserFirstName( parts[ 0 ] || '' );
+                        setUserLastName( parts.slice( 1 ).join( ' ' ) || '' );
+                    }
+                }
+            } )
+            .catch( () => { } );
     }, [] );
 
-    if ( !mounted ) return <main className="shell py-24 text-center"><p className="text-zinc-400">Loading checkout...</p></main>;
+    if ( !mounted || !isReady ) return <main className="shell py-24 text-center"><p className="text-zinc-400">Loading checkout...</p></main>;
 
-    const subtotal = cart.reduce( ( a, x ) => a + x.product.price * x.quantity, 0 );
+    const subtotal = cart.reduce( ( a, x ) => a + ( x.product.salePrice || x.product.price ) * x.quantity, 0 );
     const total = subtotal + deliveryCharge;
 
     const initializeRazorpay = () =>
@@ -48,74 +74,6 @@ export default function Checkout ()
             document.body.appendChild( script );
         } );
     };
-
-    async function makePayment ()
-    {
-        const res = await initializeRazorpay();
-        if ( !res )
-        {
-            alert( 'Razorpay SDK failed to load. Are you online?' );
-            return;
-        }
-
-        try
-        {
-            const data = await fetch( '/api/razorpay/create-order', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify( { amount: total } )
-            } ).then( t => t.json() );
-
-            if ( data.error )
-            {
-                alert( data.error );
-                return;
-            }
-
-            const options = {
-                key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
-                amount: data.amount,
-                currency: data.currency,
-                name: 'SCOTLAND E-Commerce',
-                description: 'Payment for your order',
-                order_id: data.id,
-                handler: async function ( response: any )
-                {
-                    const verifyResult = await fetch( '/api/razorpay/verify', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify( {
-                            razorpay_order_id: response.razorpay_order_id,
-                            razorpay_payment_id: response.razorpay_payment_id,
-                            razorpay_signature: response.razorpay_signature,
-                        } ),
-                    } ).then( t => t.json() );
-
-                    if ( verifyResult.success )
-                    {
-                        setDone( true );
-                        setTimeout( () => router.push( '/account/orders' ), 1200 );
-                    } else
-                    {
-                        alert( 'Payment verification failed. Please contact support.' );
-                    }
-                },
-                prefill: { name: '', email: '', contact: '' },
-                theme: { color: '#0A192F' }
-            };
-
-            const paymentObject = new ( window as any ).Razorpay( options );
-            paymentObject.open();
-
-        } catch ( error )
-        {
-            console.error( 'Payment failed', error );
-            alert( 'Something went wrong during payment initialization.' );
-        } finally
-        {
-            setLoading( false );
-        }
-    }
 
     const handlePincodeChange = async ( e: React.ChangeEvent<HTMLInputElement> ) =>
     {
@@ -153,7 +111,13 @@ export default function Checkout ()
     async function submitOrderToBackend ( shippingAddress: any, razorpayData: any = null )
     {
         const payload = {
-            cartItems: cart,
+            cartItems: cart.map( item => ( {
+                productId: item.product.id,
+                variantId: item.variantId,
+                size: item.size,
+                color: item.color,
+                quantity: item.quantity,
+            } ) ),
             shippingAddress,
             paymentMethod,
             couponDiscount: 0,
@@ -184,8 +148,16 @@ export default function Checkout ()
             const data = await fetch( '/api/razorpay/create-order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify( { amount: total } )
-            } ).then( t => t.json() );
+                body: JSON.stringify( {
+                    cartItems: cart.map( item => ( {
+                        productId: item.product.id,
+                        variantId: item.variantId,
+                        size: item.size,
+                        color: item.color,
+                        quantity: item.quantity,
+                    } ) ),
+                } )
+            } ).then( response => response.json() );
 
             if ( data.error )
             {
@@ -301,14 +273,14 @@ export default function Checkout ()
                 <form onSubmit={ submit } className="space-y-7">
                     <section>
                         <h2 className="font-semibold">Contact information</h2>
-                        <input className="input mt-3" required type="email" name="email" placeholder="Email address" />
+                        <input className="input mt-3" required type="email" name="email" placeholder="Email address" value={ userEmail } onChange={ e => setUserEmail( e.target.value ) } />
                     </section>
 
                     <section>
                         <h2 className="font-semibold">Delivery address</h2>
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                            <input className="input" required name="firstName" placeholder="First name" pattern="[A-Za-z\s]+" title="Name should only contain letters" />
-                            <input className="input" required name="lastName" placeholder="Last name" pattern="[A-Za-z\s]+" title="Name should only contain letters" />
+                            <input className="input" required name="firstName" placeholder="First name" pattern="[A-Za-z\s]+" title="Name should only contain letters" value={ userFirstName } onChange={ e => setUserFirstName( e.target.value ) } />
+                            <input className="input" required name="lastName" placeholder="Last name" pattern="[A-Za-z\s]+" title="Name should only contain letters" value={ userLastName } onChange={ e => setUserLastName( e.target.value ) } />
                             <input className="input sm:col-span-2" required name="address" placeholder="Address" />
 
                             <div className="relative">
@@ -341,7 +313,7 @@ export default function Checkout ()
                                 <p className="text-xs text-red-500 sm:col-span-2 font-medium">{ pinError }</p>
                             ) }
 
-                            <input className="input sm:col-span-2" required type="tel" name="phone" placeholder="Phone number (10 digits)" pattern="[0-9]{10}" maxLength={ 10 } minLength={ 10 } title="Phone number must be exactly 10 digits" />
+                            <input className="input sm:col-span-2" required type="tel" name="phone" placeholder="Phone number (10 digits)" pattern="[0-9]{10}" maxLength={ 10 } minLength={ 10 } title="Phone number must be exactly 10 digits" value={ userPhone } onChange={ e => setUserPhone( e.target.value.replace( /\D/g, '' ).slice( 0, 10 ) ) } />
                         </div>
                     </section>
 

@@ -14,9 +14,7 @@ function getAdminRedirect (): string
 export default function AdminLoginPage ()
 {
     const [ pending, setPending ] = useState( false );
-    const [ resetting, setResetting ] = useState( false );
     const [ error, setError ] = useState( '' );
-    const [ message, setMessage ] = useState( '' );
 
     async function handleSubmit ( event: FormEvent<HTMLFormElement> )
     {
@@ -48,27 +46,6 @@ export default function AdminLoginPage ()
         }
     }
 
-    async function requestPasswordReset ()
-    {
-        setResetting( true );
-        setError( '' );
-        setMessage( '' );
-
-        try
-        {
-            const response = await fetch( '/api/admin/password-reset', { method: 'POST' } );
-            const result = await response.json();
-            if ( !response.ok ) throw new Error( result.error || 'Could not request a password reset.' );
-            setMessage( result.message );
-        } catch ( cause )
-        {
-            setError( cause instanceof Error ? cause.message : 'Could not request a password reset.' );
-        } finally
-        {
-            setResetting( false );
-        }
-    }
-
     return (
         <main className="shell flex min-h-[75vh] items-center justify-center py-12">
             <section className="w-full max-w-md border border-stone bg-white p-6 shadow-sm sm:p-9">
@@ -95,18 +72,9 @@ export default function AdminLoginPage ()
                     </label>
 
                     { error && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">{ error }</p> }
-                    { message && <p className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800" role="status">{ message }</p> }
 
                     <button className="button w-full disabled:cursor-wait disabled:opacity-60" type="submit" disabled={ pending }>
                         { pending ? 'Verifying…' : 'Sign in to dashboard' }
-                    </button>
-                    <button
-                        className="w-full text-sm text-navy underline underline-offset-4 disabled:cursor-wait disabled:opacity-60"
-                        type="button"
-                        onClick={ requestPasswordReset }
-                        disabled={ resetting || pending }
-                    >
-                        { resetting ? 'Sending reset link…' : 'Forgot password? Email me a reset link' }
                     </button>
                 </form>
             </section>

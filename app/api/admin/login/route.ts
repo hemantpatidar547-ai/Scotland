@@ -52,7 +52,7 @@ export async function POST ( request: NextRequest )
 
         if ( error || !data.user || !isAdminEmail( data.user.email ) )
         {
-            return NextResponse.json( { error: 'The Supabase password is incorrect. Use “Forgot password” to reset it.' }, { status: 401 } );
+            return NextResponse.json( { error: 'The admin password is incorrect.' }, { status: 401 } );
         }
 
         return NextResponse.json( { success: true } );

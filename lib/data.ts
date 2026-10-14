@@ -141,13 +141,20 @@ async function fetchAllProductsFromDB (): Promise<Product[]>
             .from( 'products' )
             .select( '*, product_variants(*), product_images(*)' );
 
-        if ( !error && data?.length )
+        if ( error )
         {
-            return data.map( formatSupabaseProduct );
+            console.error( 'Failed to fetch products from Supabase:', error );
+            throw new Error( 'Could not load products from Supabase.' );
         }
+
+        return ( data || [] ).map( formatSupabaseProduct );
     }
 
-    if ( !clientPromise ) return [];
+    if ( !clientPromise )
+    {
+        console.error( 'No product database is configured. Configure Supabase or MongoDB environment variables.' );
+        return [];
+    }
 
     try
     {
@@ -233,7 +240,13 @@ export async function getAdminProducts (): Promise<Product[]>
         .from( 'products' )
         .select( '*, categories(name), product_variants(*), product_images(*)' );
 
-    return !error && data ? data.map( formatSupabaseProduct ) : [];
+    if ( error )
+    {
+        console.error( 'Failed to fetch admin products from Supabase:', error );
+        throw new Error( 'Could not load products from Supabase.' );
+    }
+
+    return ( data || [] ).map( formatSupabaseProduct );
 }
 
 export async function getAdminProductById ( id: string ): Promise<Product | undefined>

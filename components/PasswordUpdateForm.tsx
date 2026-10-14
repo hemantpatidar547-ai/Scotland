@@ -3,7 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export function PasswordUpdateForm ()
+export function PasswordUpdateForm ( { returnTo = '/account?passwordUpdated=1' }: { returnTo?: string } )
 {
     const router = useRouter();
     const [ password, setPassword ] = useState( '' );
@@ -26,7 +26,7 @@ export function PasswordUpdateForm ()
             if ( !response.ok ) throw new Error( result.error || 'Could not update your password.' );
             setPassword( '' );
             setMessage( 'Your password has been updated.' );
-            router.replace( '/account?passwordUpdated=1' );
+            router.replace( returnTo );
         } catch ( error )
         {
             setMessage( error instanceof Error ? error.message : 'Could not update your password.' );

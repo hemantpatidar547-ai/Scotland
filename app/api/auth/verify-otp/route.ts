@@ -3,6 +3,7 @@ import { verifyOTP, validateEmail } from '@/lib/email-otp';
 import { setAuthCookie, type OTPUser } from '@/lib/jwt-auth';
 import { isAdminEmail } from '@/lib/admin-authorization';
 import clientPromise from '@/lib/mongodb';
+import type { ObjectId } from 'mongodb';
 import crypto from 'crypto';
 
 export async function POST ( request: NextRequest )
@@ -40,7 +41,18 @@ export async function POST ( request: NextRequest )
 
         const client = await clientPromise;
         const db = client.db( 'scotland' );
-        const customersCollection = db.collection( 'customers' );
+        const customersCollection = db.collection<{
+            _id: string | ObjectId;
+            email: string;
+            name: string;
+            mobile?: string;
+            role: string;
+            createdAt?: Date;
+            lastLoginAt?: Date;
+            loginCount?: number;
+            isActive?: boolean;
+            addresses?: unknown[];
+        }>( 'customers' );
 
         let customer = await customersCollection.findOne( { email } );
 
@@ -98,7 +110,7 @@ export async function POST ( request: NextRequest )
 
         // Create JWT session
         const otpUser: OTPUser = {
-            id: customer._id as string,
+            id: customer._id.toString(),
             mobile: ( customer.mobile || '' ) as string,
             name: customer.name as string,
             email,

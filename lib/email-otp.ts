@@ -5,12 +5,12 @@
  * Replace transporter config with real SMTP (Gmail, SendGrid, etc.) for production.
  */
 
-import nodemailer from 'nodemailer';
+import nodemailer, { type Transporter } from 'nodemailer';
 import clientPromise from '@/lib/mongodb';
 
-let transporterPromise: Promise<nodemailer.Transporter> | null = null;
+let transporterPromise: Promise<Transporter> | null = null;
 
-async function getTransporter (): Promise<nodemailer.Transporter>
+async function getTransporter (): Promise<Transporter>
 {
     if ( !transporterPromise )
     {

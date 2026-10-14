@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AdminLogoutButton } from '@/components/AdminLogoutButton';
 
 export default function AdminLayout ( { children }: { children: React.ReactNode } )
 {
@@ -22,6 +23,7 @@ export default function AdminLayout ( { children }: { children: React.ReactNode 
 
                     <div className="flex items-center gap-4 text-sm">
                         <Link href="/" className="hover:text-gold transition underline decoration-stone/50 underline-offset-4">View Live Store</Link>
+                        <AdminLogoutButton />
                     </div>
                 </div>
             </header>

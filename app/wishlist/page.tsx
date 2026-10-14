@@ -1,6 +1,8 @@
 import { getAllProducts } from '@/lib/data';
 import { WishlistProducts } from '@/components/WishlistProducts';
 
+export const dynamic = 'force-dynamic';
+
 export default async function Wishlist ()
 {
 	const products = await getAllProducts();

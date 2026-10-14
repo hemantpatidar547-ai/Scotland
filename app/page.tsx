@@ -6,7 +6,8 @@ import { ItalianComboOutfits } from '@/components/ItalianComboOutfits';
 import { RotatingHeroSection } from '@/components/RotatingHeroSection';
 import { CampaignSlider } from '@/components/CampaignSlider';
 
-// Revalidate every 60 seconds (ISR) — fast cached responses, stays fresh
+export const dynamic = 'force-dynamic';
+
 const heroImages = [
   {
     src: '/images/hero/photo-1496747611176-843222e1e57c.webp',

@@ -1,6 +1,7 @@
 import clientPromise from '@/lib/mongodb';
 import { Product } from '@/types/product';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { isValidSupabaseUrl } from '@/lib/supabase/is-valid-url';
 
 // ─── Singleton Supabase clients ──────────────────────────────────────────────
 let _supabaseAdmin: SupabaseClient | null = null;
@@ -9,7 +10,7 @@ let _supabaseAnon: SupabaseClient | null = null;
 function getSupabaseAdmin (): SupabaseClient | null
 {
     if ( _supabaseAdmin ) return _supabaseAdmin;
-    if ( process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY )
+    if ( isValidSupabaseUrl( process.env.NEXT_PUBLIC_SUPABASE_URL ) && process.env.SUPABASE_SERVICE_ROLE_KEY )
     {
         _supabaseAdmin = createClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -23,7 +24,7 @@ function getSupabaseAdmin (): SupabaseClient | null
 function getSupabaseAnon (): SupabaseClient | null
 {
     if ( _supabaseAnon ) return _supabaseAnon;
-    if ( process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY )
+    if ( isValidSupabaseUrl( process.env.NEXT_PUBLIC_SUPABASE_URL ) && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY )
     {
         _supabaseAnon = createClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -133,6 +134,11 @@ function formatSupabaseProduct ( product: any ): Product
 // ─── Raw fetcher (hits DB) ────────────────────────────────────────────────────
 async function fetchAllProductsFromDB (): Promise<Product[]>
 {
+    if ( process.env.NEXT_PUBLIC_SUPABASE_URL && !isValidSupabaseUrl( process.env.NEXT_PUBLIC_SUPABASE_URL ) )
+    {
+        console.error( 'Invalid NEXT_PUBLIC_SUPABASE_URL. Set it to the Supabase Project URL, for example https://your-project.supabase.co.' );
+    }
+
     const supabase = getSupabase();
 
     if ( supabase )

@@ -1,13 +1,8 @@
 import { notFound } from 'next/navigation';
-import { getProductBySlug, getAllProducts } from '@/lib/data';
+import { getProductBySlug } from '@/lib/data';
 import { ProductDetails } from './product-details';
 
-// Pre-build all product pages at startup
-export async function generateStaticParams ()
-{
-    const products = await getAllProducts();
-    return products.map( p => ( { slug: p.slug } ) );
-}
+export const dynamic = 'force-dynamic';
 
 export async function generateMetadata ( { params }: { params: Promise<{ slug: string }> } )
 {

@@ -1,6 +1,7 @@
 'use client';
 import Image from 'next/image';
-import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
 import { Product } from '@/types/product';
 import { useStore } from '@/components/StoreProvider';
 import { ProductCard } from '@/components/ProductCard';
@@ -29,14 +30,45 @@ export function ProductDetails ( { product }: { product: Product } )
   const [ activeImg, setActiveImg ] = useState( 0 );
   const [ activeTab, setActiveTab ] = useState<'details' | 'shipping'>( 'details' );
   const [ inventoryVariants, setInventoryVariants ] = useState( product.inventoryVariants );
-  const { addToCart, toggleFavorite, favorites } = useStore();
+  const { addToCart, toggleFavorite, favorites, isReady } = useStore();
+  const router = useRouter();
+  const resumedAdd = useRef( false );
 
-  const handleAddToBag = () =>
+  const handleAddToBag = async () =>
   {
-    addToCart( product, size, color );
-    setAdded( true );
-    window.setTimeout( () => setAdded( false ), 1800 );
+    if ( await addToCart( product, size, color ) )
+    {
+      setAdded( true );
+      window.setTimeout( () => setAdded( false ), 1800 );
+    }
   };
+
+  useEffect( () =>
+  {
+    if ( !isReady || resumedAdd.current ) return;
+    if ( new URLSearchParams( window.location.search ).get( 'resumeAddToBag' ) !== '1' ) return;
+
+    try
+    {
+      const rawIntent = localStorage.getItem( 'scotland-pending-add-to-bag' );
+      if ( !rawIntent ) return;
+      const intent = JSON.parse( rawIntent ) as { productId?: string; size?: string; color?: string };
+      if ( intent.productId !== product.id || !intent.size || !intent.color ) return;
+
+      resumedAdd.current = true;
+      void addToCart( product, intent.size, intent.color ).then( addedToCart =>
+      {
+        if ( addedToCart )
+        {
+          localStorage.removeItem( 'scotland-pending-add-to-bag' );
+          router.replace( '/cart' );
+        }
+      } );
+    } catch ( error )
+    {
+      console.error( 'Could not resume the pending add-to-bag action:', error );
+    }
+  }, [ addToCart, isReady, product, router ] );
 
   const handleShare = async () =>
   {
@@ -215,7 +247,7 @@ export function ProductDetails ( { product }: { product: Product } )
               onClick={ handleAddToBag }
               className="button w-full disabled:opacity-40 disabled:cursor-not-allowed"
               type="button"
-              disabled={ product.status === 'draft' || selectedVariantStock === 0 }
+              disabled={ !isReady || product.status === 'draft' || selectedVariantStock === 0 }
             >
               { product.status === 'draft' ? '🚫 Not Available' : added ? '✓ Added to bag' : 'Add to bag' }
             </button>

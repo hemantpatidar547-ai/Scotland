@@ -16,7 +16,7 @@ type Store = {
     favorites: string[];
     isReady: boolean;
     syncError: string | null;
-    addToCart: ( product: Product, size: string, color: string ) => void;
+    addToCart: ( product: Product, size: string, color: string ) => Promise<boolean>;
     removeFromCart: ( itemKey: string ) => void;
     setQty: ( itemKey: string, quantity: number ) => void;
     toggleFavorite: ( id: string ) => void;
@@ -32,6 +32,7 @@ type StoredAccountState = {
 const StoreContext = createContext<Store | null>( null );
 const GUEST_CART_KEY = 'scotland-cart';
 const GUEST_FAVORITES_KEY = 'scotland-favorites';
+const PENDING_ADD_TO_BAG_KEY = 'scotland-pending-add-to-bag';
 
 export function cartItemKey ( item: Pick<CartItem, 'product' | 'size' | 'color'> ): string
 {
@@ -237,18 +238,83 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
         favorites,
         isReady: readyToSync,
         syncError,
-        addToCart: ( product, size, color ) =>
+        addToCart: async ( product, size, color ) =>
         {
             const variantId = product.inventoryVariants?.find( item => item.size === size && item.color === color )?.id;
-            setCart( current =>
+
+            if ( !readyToSync )
             {
-                const found = current.find( item => item.product.id === product.id && item.size === size && item.color === color );
-                if ( found )
+                setSyncError( 'Your saved cart is still loading. Please try again in a moment.' );
+                return false;
+            }
+
+            if ( !variantId )
+            {
+                setSyncError( 'This product option is no longer available. Please refresh and try again.' );
+                return false;
+            }
+
+            try
+            {
+                const accountResponse = await fetch( '/api/account/store', { cache: 'no-store' } );
+                if ( accountResponse.status === 401 )
                 {
-                    return current.map( item => item === found ? { ...item, quantity: item.quantity + 1 } : item );
+                    const returnTo = `/products/${ encodeURIComponent( product.slug ) }?resumeAddToBag=1`;
+                    localStorage.setItem( PENDING_ADD_TO_BAG_KEY, JSON.stringify( {
+                        productId: product.id,
+                        size,
+                        color,
+                    } ) );
+                    window.location.assign( `/login?redirect=${ encodeURIComponent( returnTo ) }` );
+                    return false;
                 }
-                return [ ...current, { product: compressProductForCart( product ), size, color, quantity: 1, variantId } ];
-            } );
+
+                const accountResult = await accountResponse.json();
+                if ( !accountResponse.ok ) throw new Error( accountResult.error || 'Could not load your account cart.' );
+
+                const accountState = accountResult.data as StoredAccountState;
+                const nextCart = accountState.cart.map( item => ( {
+                    ...item,
+                    product: compressProductForCart( item.product ),
+                } ) );
+                const existingItem = nextCart.find( item =>
+                    item.product.id === product.id && item.size === size && item.color === color
+                );
+
+                if ( existingItem )
+                {
+                    existingItem.quantity = Math.min( 99, existingItem.quantity + 1 );
+                } else
+                {
+                    nextCart.push( {
+                        product: compressProductForCart( product ),
+                        productId: product.id,
+                        size,
+                        color,
+                        quantity: 1,
+                        variantId,
+                    } );
+                }
+
+                const saveResponse = await fetch( '/api/account/store', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify( {
+                        cart: toServerCart( nextCart ),
+                        favorites: accountState.favorites,
+                    } ),
+                } );
+                const saveResult = await saveResponse.json();
+                if ( !saveResponse.ok ) throw new Error( saveResult.error || 'Could not save the item to your account cart.' );
+
+                applyAccountState( saveResult.data as StoredAccountState );
+                return true;
+            } catch ( error )
+            {
+                console.error( 'Could not add item to the account cart:', error );
+                setSyncError( error instanceof Error ? error.message : 'Could not save this item to your account cart.' );
+                return false;
+            }
         },
         removeFromCart: itemKey => setCart( current => current.filter( item => cartItemKey( item ) !== itemKey ) ),
         setQty: ( itemKey, quantity ) => setCart( current => current.map( item =>
@@ -258,7 +324,7 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
             ? current.filter( favorite => favorite !== id )
             : [ ...current, id ] ),
         clearCart: () => setCart( [] ),
-    } ), [ cart, favorites, readyToSync, syncError ] );
+    } ), [ cart, favorites, readyToSync, syncError, applyAccountState ] );
 
     return <StoreContext.Provider value={ value }>{ children }</StoreContext.Provider>;
 }

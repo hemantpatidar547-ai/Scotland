@@ -8,7 +8,7 @@ const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', { style: 'currenc
 
 export function ProductCard ( { product }: { product: Product } )
 {
-	const { favorites, toggleFavorite, addToCart } = useStore();
+	const { favorites, toggleFavorite, addToCart, isReady } = useStore();
 	const productPath = `/products/${ product.slug }`;
 
 	return (
@@ -28,7 +28,7 @@ export function ProductCard ( { product }: { product: Product } )
 					) : (
 						<>
 							<div className="mt-1 flex justify-between text-sm"><span>{ money( product.salePrice || product.price ) }</span><span className="text-gold">★ { product.rating }</span></div>
-							<button onClick={ event => { event.preventDefault(); event.stopPropagation(); addToCart( product, product.sizes[ 0 ], product.colors[ 0 ] ); } } className="mt-3 border-b border-navy pb-1 font-mono text-[10px] uppercase tracking-wider hover:text-gold transition-colors">Quick add +</button>
+							<button disabled={ !isReady } onClick={ event => { event.preventDefault(); event.stopPropagation(); void addToCart( product, product.sizes[ 0 ], product.colors[ 0 ] ); } } className="mt-3 border-b border-navy pb-1 font-mono text-[10px] uppercase tracking-wider hover:text-gold transition-colors disabled:cursor-wait disabled:opacity-50">Quick add +</button>
 						</>
 					) }
 				</div>

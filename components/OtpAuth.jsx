@@ -42,10 +42,18 @@ export default function OtpAuth ()
 
         try {
             const supabase = createClient();
+            const siteOrigin = process.env.NEXT_PUBLIC_SITE_URL?.replace( /\/+$/, '' ) || window.location.origin;
+            const callbackUrl = new URL( '/api/auth/callback', siteOrigin );
+            const requestedRedirect = new URLSearchParams( window.location.search ).get( 'redirect' );
+            const redirectTo = requestedRedirect?.startsWith( '/' ) && !requestedRedirect.startsWith( '//' )
+                ? requestedRedirect
+                : '/';
+            callbackUrl.searchParams.set( 'redirect', redirectTo );
+
             const { error: authError } = await supabase.auth.signInWithOAuth( {
                 provider: 'google',
                 options: {
-                    redirectTo: `${ window.location.origin }/api/auth/callback`,
+                    redirectTo: callbackUrl.toString(),
                     queryParams: {
                         access_type: 'offline',
                         prompt: 'consent',

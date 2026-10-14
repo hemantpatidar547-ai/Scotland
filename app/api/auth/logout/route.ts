@@ -1,22 +1,13 @@
 import { NextResponse } from 'next/server';
-import { clearAuthCookie } from '@/lib/jwt-auth';
+import { createClient } from '@/lib/supabase/ssr-server';
 
 export async function POST ()
 {
     try
     {
-        await clearAuthCookie();
-
-        // Also try to sign out from Supabase if active
-        try
-        {
-            const { createClient } = await import( '@/lib/supabase/ssr-server' );
-            const supabase = await createClient();
-            await supabase.auth.signOut();
-        } catch
-        {
-            // Supabase not available; that's fine, OTP cookie is cleared.
-        }
+        const supabase = await createClient();
+        const { error } = await supabase.auth.signOut();
+        if ( error ) throw error;
 
         return NextResponse.json( { success: true, message: 'Logged out successfully.' } );
     } catch ( error )

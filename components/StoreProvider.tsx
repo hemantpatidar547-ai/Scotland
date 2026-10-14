@@ -55,6 +55,17 @@ function toServerCart ( cart: CartItem[] )
     } ] : [] );
 }
 
+function sendProductToLogin ( product: Product, size: string, color: string )
+{
+    localStorage.setItem( PENDING_ADD_TO_BAG_KEY, JSON.stringify( {
+        productId: product.id,
+        size,
+        color,
+    } ) );
+    const returnTo = `/products/${ encodeURIComponent( product.slug ) }?resumeAddToBag=1`;
+    window.location.assign( `/login?redirect=${ encodeURIComponent( returnTo ) }` );
+}
+
 export function StoreProvider ( { children }: { children: React.ReactNode } )
 {
     const [ cart, setCart ] = useState<CartItem[]>( [] );
@@ -256,16 +267,20 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
 
             try
             {
-                const accountResponse = await fetch( '/api/account/store', { cache: 'no-store' } );
+                if ( !accountId )
+                {
+                    sendProductToLogin( product, size, color );
+                    return false;
+                }
+
+                const accountResponse = await fetch( '/api/account/store', {
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout( 15000 ),
+                } );
                 if ( accountResponse.status === 401 )
                 {
-                    const returnTo = `/products/${ encodeURIComponent( product.slug ) }?resumeAddToBag=1`;
-                    localStorage.setItem( PENDING_ADD_TO_BAG_KEY, JSON.stringify( {
-                        productId: product.id,
-                        size,
-                        color,
-                    } ) );
-                    window.location.assign( `/login?redirect=${ encodeURIComponent( returnTo ) }` );
+                    setAccountId( null );
+                    sendProductToLogin( product, size, color );
                     return false;
                 }
 
@@ -299,6 +314,7 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
                 const saveResponse = await fetch( '/api/account/store', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
+                    signal: AbortSignal.timeout( 15000 ),
                     body: JSON.stringify( {
                         cart: toServerCart( nextCart ),
                         favorites: accountState.favorites,
@@ -312,7 +328,9 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
             } catch ( error )
             {
                 console.error( 'Could not add item to the account cart:', error );
-                setSyncError( error instanceof Error ? error.message : 'Could not save this item to your account cart.' );
+                setSyncError( error instanceof DOMException && error.name === 'TimeoutError'
+                    ? 'Saving your bag took too long. Please try again.'
+                    : error instanceof Error ? error.message : 'Could not save this item to your account cart.' );
                 return false;
             }
         },
@@ -324,7 +342,7 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
             ? current.filter( favorite => favorite !== id )
             : [ ...current, id ] ),
         clearCart: () => setCart( [] ),
-    } ), [ cart, favorites, readyToSync, syncError, applyAccountState ] );
+    } ), [ accountId, cart, favorites, readyToSync, syncError, applyAccountState ] );
 
     return <StoreContext.Provider value={ value }>{ children }</StoreContext.Provider>;
 }

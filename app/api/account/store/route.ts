@@ -107,6 +107,14 @@ async function syncCart (
     if ( error ) throw error;
 }
 
+function isMissingCartSyncMigration ( error: unknown ): boolean
+{
+    if ( !error || typeof error !== 'object' ) return false;
+    const databaseError = error as { code?: string; message?: string };
+    return databaseError.code === 'PGRST202' &&
+        ( databaseError.message || '' ).toLowerCase().includes( 'sync_customer_cart' );
+}
+
 async function syncWishlist (
     userId: string,
     productIds: string[],
@@ -174,6 +182,13 @@ export async function POST ( request: NextRequest )
     } catch ( error )
     {
         console.error( 'Guest store merge failed:', error );
+        if ( isMissingCartSyncMigration( error ) )
+        {
+            return NextResponse.json(
+                { error: 'Saved cart database setup is incomplete. Run supabase/migrations/0004_customer_accounts.sql in the Supabase SQL Editor.' },
+                { status: 503 }
+            );
+        }
         const message = error instanceof Error ? error.message : '';
         const outOfStock = message.toLowerCase().includes( 'stock' ) || message.toLowerCase().includes( 'available' );
         return NextResponse.json(
@@ -202,6 +217,13 @@ export async function PUT ( request: NextRequest )
     } catch ( error )
     {
         console.error( 'Customer store update failed:', error );
+        if ( isMissingCartSyncMigration( error ) )
+        {
+            return NextResponse.json(
+                { error: 'Saved cart database setup is incomplete. Run supabase/migrations/0004_customer_accounts.sql in the Supabase SQL Editor.' },
+                { status: 503 }
+            );
+        }
         const message = error instanceof Error ? error.message : '';
         const unavailable = message.toLowerCase().includes( 'stock' ) || message.toLowerCase().includes( 'available' );
         return NextResponse.json(

@@ -1,4 +1,3 @@
-import clientPromise from '@/lib/mongodb';
 import { Product } from '@/types/product';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { isValidSupabaseUrl } from '@/lib/supabase/is-valid-url';
@@ -45,6 +44,15 @@ const CACHE_TTL_MS = 60_000; // 60 seconds
 
 let _cachedProducts: Product[] | null = null;
 let _cacheTimestamp = 0;
+const PRODUCT_QUERY_BATCH_SIZE = 2;
+
+const PRODUCT_SELECT = `
+    id, slug, sku, name, description, short_description, gender, price, mrp, sale_price, discount,
+    average_rating, review_count, material, tax_percentage, cost_price, style_origin, occasion,
+    is_new_arrival, is_best_seller, is_featured, status, product_metadata,
+    product_variants(id, color, size, stock_quantity, is_active, image_url),
+    product_images(id, image_url, display_order, is_primary)
+`;
 
 export function bustProductCache ()
 {
@@ -143,60 +151,36 @@ async function fetchAllProductsFromDB (): Promise<Product[]>
 
     if ( supabase )
     {
-        const { data, error } = await supabase
-            .from( 'products' )
-            .select( '*, product_variants(*), product_images(*)' );
-
-        if ( error )
+        const products: Product[] = [];
+        let offset = 0;
+        while ( true )
         {
-            console.error( 'Failed to fetch products from Supabase:', error );
-            throw new Error( 'Could not load products from Supabase.' );
+            const { data, error } = await supabase
+                .from( 'products' )
+                .select( PRODUCT_SELECT )
+                .order( 'id' )
+                .range( offset, offset + PRODUCT_QUERY_BATCH_SIZE - 1 );
+
+            if ( error )
+            {
+                console.error(
+                    `Failed to fetch Supabase products at offset ${ offset}: ` +
+                    `code=${ error.code || 'unknown' }; message=${ error.message }; ` +
+                    `details=${ error.details || 'none' }; hint=${ error.hint || 'none' }`
+                );
+                throw new Error( `Could not load products from Supabase: ${ error.message }` );
+            }
+
+            const batch = data || [];
+            products.push( ...batch.map( formatSupabaseProduct ) );
+            if ( batch.length < PRODUCT_QUERY_BATCH_SIZE ) break;
+            offset += batch.length;
         }
 
-        return ( data || [] ).map( formatSupabaseProduct );
+        return products;
     }
 
-    if ( !clientPromise )
-    {
-        console.error( 'No product database is configured. Configure Supabase or MongoDB environment variables.' );
-        return [];
-    }
-
-    try
-    {
-        const client = await clientPromise;
-        const mongoProducts = await client.db( 'scotland' ).collection( 'products' ).find( {} ).toArray();
-
-        return mongoProducts.map( p => ( {
-            id: p._id.toString(),
-            slug: p.slug,
-            name: p.name,
-            description: p.description,
-            shortDescription: p.shortDescription || p.description,
-            category: p.category || 'Clothing',
-            gender: p.gender || 'Unisex',
-            rating: Number( p.rating || 0 ),
-            reviews: Number( p.reviews || 0 ),
-            image: p.image || '/images/brand/scotland-lion.png',
-            images: Array.isArray( p.images ) && p.images.length > 0 ? p.images : [ p.image || '/images/brand/scotland-lion.png' ],
-            colors: Array.isArray( p.colors ) && p.colors.length > 0 ? p.colors : [ 'Default' ],
-            sizes: Array.isArray( p.sizes ) && p.sizes.length > 0 ? p.sizes : [ 'One size' ],
-            mrp: p.mrp ? Number( p.mrp ) : undefined,
-            salePrice: p.salePrice ? Number( p.salePrice ) : undefined,
-            discount: p.discount ? Number( p.discount ) : undefined,
-            material: p.material || 'Not specified',
-            stock: Number( p.stock ?? p.stock_quantity ?? 0 ),
-            styleOrigin: p.styleOrigin || 'Scotland',
-            occasion: p.occasion || 'Everyday',
-            isNew: p.isNew ?? false,
-            price: Number( p.price ),
-        } ) );
-    }
-    catch ( err )
-    {
-        console.error( 'Error fetching MongoDB products:', err );
-        return [];
-    }
+    throw new Error( 'Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and a Supabase key.' );
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -231,9 +215,26 @@ export async function getProductBySlug ( slug: string ): Promise<Product | undef
         return _cachedProducts.find( p => p.slug === slug );
     }
 
-    // 2. Cache is cold — fetch all (warms the cache for subsequent requests too)
-    const all = await getAllProducts();
-    return all.find( p => p.slug === slug );
+    const supabase = getSupabase();
+    if ( !supabase ) throw new Error( 'Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and a Supabase key.' );
+
+    const { data, error } = await supabase
+        .from( 'products' )
+        .select( PRODUCT_SELECT )
+        .eq( 'slug', slug )
+        .maybeSingle();
+
+    if ( error )
+    {
+        console.error(
+            `Failed to fetch Supabase product "${ slug }": ` +
+            `code=${ error.code || 'unknown' }; message=${ error.message }; ` +
+            `details=${ error.details || 'none' }; hint=${ error.hint || 'none' }`
+        );
+        throw new Error( `Could not load product from Supabase: ${ error.message }` );
+    }
+
+    return data ? formatSupabaseProduct( data ) : undefined;
 }
 
 /** Admin version — always fresh (no cache), full data. */

@@ -30,16 +30,24 @@ export function ProductDetails ( { product }: { product: Product } )
   const [ activeImg, setActiveImg ] = useState( 0 );
   const [ activeTab, setActiveTab ] = useState<'details' | 'shipping'>( 'details' );
   const [ inventoryVariants, setInventoryVariants ] = useState( product.inventoryVariants );
-  const { addToCart, toggleFavorite, favorites, isReady } = useStore();
+  const { addToCart, toggleFavorite, favorites, isReady, syncError } = useStore();
   const router = useRouter();
   const resumedAdd = useRef( false );
+  const [ addingToBag, setAddingToBag ] = useState( false );
 
   const handleAddToBag = async () =>
   {
-    if ( await addToCart( product, size, color ) )
+    setAddingToBag( true );
+    try
     {
-      setAdded( true );
-      window.setTimeout( () => setAdded( false ), 1800 );
+      if ( await addToCart( product, size, color ) )
+      {
+        setAdded( true );
+        window.setTimeout( () => setAdded( false ), 1800 );
+      }
+    } finally
+    {
+      setAddingToBag( false );
     }
   };
 
@@ -247,10 +255,11 @@ export function ProductDetails ( { product }: { product: Product } )
               onClick={ handleAddToBag }
               className="button w-full disabled:opacity-40 disabled:cursor-not-allowed"
               type="button"
-              disabled={ !isReady || product.status === 'draft' || selectedVariantStock === 0 }
+              disabled={ !isReady || addingToBag || product.status === 'draft' || selectedVariantStock === 0 }
             >
-              { product.status === 'draft' ? '🚫 Not Available' : added ? '✓ Added to bag' : 'Add to bag' }
+              { product.status === 'draft' ? '🚫 Not Available' : addingToBag ? 'Saving to your bag…' : added ? '✓ Added to bag' : 'Add to bag' }
             </button>
+            { syncError && <p className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">{ syncError }</p> }
 
             {/* COD */ }
             { product.cod !== undefined && (

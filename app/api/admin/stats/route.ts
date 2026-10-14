@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
+import { isAdminEmail } from '@/lib/admin-authorization';
 
 async function requireAdmin ()
 {
     const supabase = await createClient();
     const { data: { user }, error } = await supabase.auth.getUser();
-    const adminEmails = [ 'patidarhemant226@gmail.com', 'hemantpatidar547@gmail.com', process.env.ADMIN_EMAIL ];
-    if ( error || !user || !adminEmails.includes( user.email ) ) return null;
+    if ( error || !user || !isAdminEmail( user.email ) ) return null;
     return user;
 }
 

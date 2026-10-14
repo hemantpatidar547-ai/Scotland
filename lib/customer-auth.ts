@@ -1,35 +1,14 @@
 import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
-import { getOTPUser } from '@/lib/jwt-auth';
 
 type AuthResult = {
-    user: { id: string; email?: string | null; mobile?: string; name?: string; provider: 'otp' | 'supabase' } | null;
+    user: { id: string; email?: string | null; mobile?: string; name?: string; provider: 'supabase' } | null;
     db: ReturnType<typeof getSupabaseAdmin> | null;
 };
 
-/**
- * Unified auth check — tries OTP JWT first, then Supabase.
- * Returns user info and Supabase admin DB client for data queries.
- */
+/** Returns the authenticated Supabase user and the database client used for account data. */
 export async function getAuthenticatedCustomer (): Promise<AuthResult>
 {
-    // Check OTP session first
-    const otpUser = await getOTPUser();
-    if ( otpUser )
-    {
-        return {
-            user: {
-                id: otpUser.id,
-                email: otpUser.email || null,
-                mobile: otpUser.mobile,
-                name: otpUser.name,
-                provider: 'otp',
-            },
-            db: getSupabaseAdmin(),
-        };
-    }
-
-    // Fall back to Supabase
     try
     {
         const supabase = await createClient();

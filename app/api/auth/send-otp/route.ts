@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendOTP, validateEmail } from '@/lib/email-otp';
-import clientPromise from '@/lib/mongodb';
+import { sendEmailOtp, validateEmail } from '@/lib/supabase/email-auth';
 
 export async function POST ( request: NextRequest )
 {
@@ -8,6 +7,7 @@ export async function POST ( request: NextRequest )
     {
         const body = await request.json();
         const email = String( body.email || '' ).trim().toLowerCase();
+        const name = String( body.name || '' ).trim();
 
         if ( !email || !validateEmail( email ) )
         {
@@ -17,31 +17,17 @@ export async function POST ( request: NextRequest )
             );
         }
 
-        // Check if user exists in MongoDB
-        let isNewUser = true;
-        let existingUser = null;
-
-        if ( clientPromise )
+        if ( name && ( name.length < 2 || name.length > 120 ) )
         {
-            const client = await clientPromise;
-            const db = client.db( 'scotland' );
-            existingUser = await db.collection( 'customers' ).findOne( { email } );
-            isNewUser = !existingUser;
+            return NextResponse.json( { error: 'Enter a name between 2 and 120 characters.' }, { status: 400 } );
         }
 
-        // Send OTP via email
-        const result = await sendOTP( email );
-
-        if ( !result.success )
-        {
-            return NextResponse.json( { error: result.message }, { status: 500 } );
-        }
+        await sendEmailOtp( email, name || undefined );
 
         return NextResponse.json( {
             success: true,
-            message: result.message,
-            isNewUser,
-            userName: existingUser?.name || null,
+            message: 'Verification code sent to your email.',
+            userName: name || null,
         } );
     } catch ( error )
     {

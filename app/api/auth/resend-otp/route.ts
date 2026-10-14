@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { resendOTP, validateEmail } from '@/lib/email-otp';
+import { sendEmailOtp, validateEmail } from '@/lib/supabase/email-auth';
 
 export async function POST ( request: NextRequest )
 {
@@ -13,14 +13,9 @@ export async function POST ( request: NextRequest )
             return NextResponse.json( { error: 'Invalid email address.' }, { status: 400 } );
         }
 
-        const result = await resendOTP( email );
+        await sendEmailOtp( email );
 
-        if ( !result.success )
-        {
-            return NextResponse.json( { error: result.message }, { status: 500 } );
-        }
-
-        return NextResponse.json( { success: true, message: result.message } );
+        return NextResponse.json( { success: true, message: 'Verification code sent to your email.' } );
     } catch ( error )
     {
         console.error( 'Resend OTP error:', error );

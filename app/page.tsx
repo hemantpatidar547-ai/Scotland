@@ -4,7 +4,7 @@ import { getAllProducts } from '@/lib/data';
 import { ProductCard } from '@/components/ProductCard';
 import { ItalianComboOutfits } from '@/components/ItalianComboOutfits';
 import { RotatingHeroSection } from '@/components/RotatingHeroSection';
-import { CampaignSlider } from '@/components/CampaignSlider';
+import { CoastalEditorialSection } from '@/components/CoastalEditorialSection';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,7 +68,7 @@ export default async function Home ()
       </div>
     </section>
 
-    <CampaignSlider />
+    <CoastalEditorialSection />
 
     <section className="shell py-12">
       <div className="flex items-end justify-between"><div><p className="eyebrow">New season</p><h2 className="display mt-3 text-4xl">New arrivals</h2></div><Link className="eyebrow border-b border-navy pb-1" href="/shop">View all pieces</Link></div>

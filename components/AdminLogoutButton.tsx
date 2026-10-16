@@ -14,7 +14,7 @@ export function AdminLogoutButton ()
 
         try
         {
-            const response = await fetch( '/api/auth/logout', { method: 'POST' } );
+            const response = await fetch( '/api/admin/logout', { method: 'POST' } );
             const result = await response.json();
             if ( !response.ok ) throw new Error( result.error || 'Could not sign out.' );
             window.location.assign( '/admin/login' );

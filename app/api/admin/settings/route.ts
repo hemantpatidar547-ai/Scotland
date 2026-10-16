@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
+import { isAdminRequest } from '@/lib/admin-auth';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 
 export async function PATCH ( request: Request )
 {
+    if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+
     try
     {
         const body = await request.json();

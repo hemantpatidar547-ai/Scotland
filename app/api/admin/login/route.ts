@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createAdminSession, getAdminSessionCookieName, getAdminSessionMaxAge, verifyAdminPassword } from '@/lib/admin-session';
 import { isAdminEmail } from '@/lib/admin-authorization';
-import { createClient } from '@/lib/supabase/ssr-server';
 
 export async function POST ( request: NextRequest )
 {
@@ -13,10 +13,11 @@ export async function POST ( request: NextRequest )
     const adminName = process.env.ADMIN_NAME?.trim();
     const adminMobile = process.env.ADMIN_MOBILE?.replace( /\D/g, '' );
     const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-    if ( !adminName || !adminMobile || !adminEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test( adminEmail ) )
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if ( !adminName || !adminMobile || !adminEmail || !adminPassword || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test( adminEmail ) )
     {
         return NextResponse.json(
-            { error: 'Admin login is not configured. Set ADMIN_NAME, ADMIN_MOBILE, and ADMIN_EMAIL.' },
+            { error: 'Admin login is not configured. Set ADMIN_NAME, ADMIN_MOBILE, ADMIN_EMAIL, and ADMIN_PASSWORD.' },
             { status: 503 }
         );
     }
@@ -39,23 +40,20 @@ export async function POST ( request: NextRequest )
             return NextResponse.json( { error: 'The admin details could not be verified.' }, { status: 401 } );
         }
 
-        if ( !isAdminEmail( adminEmail ) )
+        if ( !isAdminEmail( adminEmail ) || !await verifyAdminPassword( password ) )
         {
-            return NextResponse.json( { error: 'The configured admin email is not allowlisted.' }, { status: 503 } );
+            return NextResponse.json( { error: 'The admin details or password are incorrect.' }, { status: 401 } );
         }
 
-        const supabase = await createClient();
-        const { data, error } = await supabase.auth.signInWithPassword( {
-            email: adminEmail,
-            password,
+        const response = NextResponse.json( { success: true } );
+        response.cookies.set( getAdminSessionCookieName(), await createAdminSession(), {
+            httpOnly: true,
+            secure: request.nextUrl.protocol === 'https:',
+            sameSite: 'strict',
+            path: '/',
+            maxAge: getAdminSessionMaxAge(),
         } );
-
-        if ( error || !data.user || !isAdminEmail( data.user.email ) )
-        {
-            return NextResponse.json( { error: 'The admin password is incorrect.' }, { status: 401 } );
-        }
-
-        return NextResponse.json( { success: true } );
+        return response;
     } catch ( error )
     {
         console.error( 'Admin sign-in failed:', error );

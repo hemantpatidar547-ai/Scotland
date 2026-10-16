@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isAdminEmail } from '@/lib/admin-authorization';
+import { getAdminSessionCookieName, verifyAdminSession } from '@/lib/admin-session';
 
 export async function middleware ( request: NextRequest )
 {
@@ -24,27 +24,17 @@ export async function middleware ( request: NextRequest )
         }
     }
 
-    const supabaseEmail = supabaseUser?.email?.trim().toLowerCase() || '';
-    const isSupabaseAdmin = isAdminEmail( supabaseEmail );
-
     const isAuthenticated = Boolean( supabaseUser );
-    const isAdmin = isSupabaseAdmin;
 
     // ── Admin panel protection ──
-    if ( path.startsWith( '/admin' ) && path !== '/admin/login' && path !== '/admin/reset-password' )
+    if ( path.startsWith( '/admin' ) && path !== '/admin/login' )
     {
-        if ( !isAuthenticated )
-        {
-            const url = request.nextUrl.clone();
-            url.pathname = '/admin/login';
-            url.searchParams.set( 'redirect', path );
-            return NextResponse.redirect( url );
-        }
+        const isAdmin = await verifyAdminSession( request.cookies.get( getAdminSessionCookieName() )?.value );
         if ( !isAdmin )
         {
             const url = request.nextUrl.clone();
             url.pathname = '/admin/login';
-            url.searchParams.set( 'error', 'admin-required' );
+            url.searchParams.set( 'redirect', path );
             return NextResponse.redirect( url );
         }
     }

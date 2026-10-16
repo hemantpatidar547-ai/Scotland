@@ -1,20 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
-import { isAdminEmail } from '@/lib/admin-authorization';
-
-async function requireAdmin ()
-{
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if ( error || !user || !isAdminEmail( user.email ) ) return null;
-    return user;
-}
+import { isAdminRequest } from '@/lib/admin-auth';
 
 /* GET — list all coupons */
 export async function GET ()
 {
-    if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+    if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
     const db = getSupabaseAdmin();
     const { data: coupons } = await db.from( 'coupons' ).select( '*' ).order( 'created_at', { ascending: false } );
     return NextResponse.json( { data: coupons || [] } );
@@ -23,7 +14,7 @@ export async function GET ()
 /* POST — create coupon */
 export async function POST ( req: NextRequest )
 {
-    if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+    if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
     const body = await req.json();
     const { code, discountType, discountValue, minimumOrderAmount, maximumDiscount, usageLimit, expiresAt } = body;
@@ -54,7 +45,7 @@ export async function POST ( req: NextRequest )
 /* PATCH — toggle active */
 export async function PATCH ( req: NextRequest )
 {
-    if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+    if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
     const { id, isActive } = await req.json();
     if ( !id ) return NextResponse.json( { error: 'id required' }, { status: 400 } );
@@ -68,7 +59,7 @@ export async function PATCH ( req: NextRequest )
 /* DELETE — remove coupon */
 export async function DELETE ( req: NextRequest )
 {
-    if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+    if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
     const { id } = await req.json();
     if ( !id ) return NextResponse.json( { error: 'id required' }, { status: 400 } );

@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
-import { isAdminEmail } from '@/lib/admin-authorization';
-
-async function requireAdmin ()
-{
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if ( error || !user || !isAdminEmail( user.email ) ) return null;
-    return user;
-}
+import { isAdminRequest } from '@/lib/admin-auth';
 
 export async function POST ( req: NextRequest, { params }: { params: Promise<{ id: string }> } )
 {
     try
     {
-        if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+        if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
         const { id: orderId } = await params;
         const db = getSupabaseAdmin();

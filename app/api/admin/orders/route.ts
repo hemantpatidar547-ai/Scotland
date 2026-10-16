@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
-import { isAdminEmail } from '@/lib/admin-authorization';
-
-async function requireAdmin ()
-{
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if ( error || !user || !isAdminEmail( user.email ) ) return null;
-    return user;
-}
+import { isAdminRequest } from '@/lib/admin-auth';
 
 const VALID_STATUSES = [ 'pending', 'confirmed', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered', 'cancelled', 'returned', 'refunded' ];
 
@@ -18,7 +9,7 @@ export async function GET ( req: NextRequest )
 {
     try
     {
-        if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+        if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
         const { searchParams } = new URL( req.url );
         const status = searchParams.get( 'status' );
@@ -111,7 +102,7 @@ export async function PATCH ( req: NextRequest )
 {
     try
     {
-        if ( !await requireAdmin() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+        if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
         const { orderId, orderStatus, paymentStatus } = await req.json();
         if ( !orderId ) return NextResponse.json( { error: 'Order ID required' }, { status: 400 } );

@@ -10,6 +10,7 @@ export type HomepageShowcase = {
     title: string;
     description: string;
     badge: string;
+    featuredImage: string;
     cards: HomepageShowcaseCard[];
 };
 
@@ -19,6 +20,7 @@ export const DEFAULT_HOMEPAGE_SHOWCASE: HomepageShowcase = {
     title: 'Styles for every day.',
     description: 'Explore a growing collection of considered essentials, easy layers, and complete looks. New products and fresh styles are on the way.',
     badge: 'New styles arriving soon',
+    featuredImage: '/images/italian-looks/cafe-linen-set.jpeg',
     cards: [
         { image: '/images/italian-looks/evening-knit-polo.jpeg', title: 'Sky blue breeze', detail: 'An airy sky blue button-up shirt, made for relaxed days and easy escapes.' },
         { image: '/images/italian-looks/lake-navy-polo.jpeg', title: 'Modern monochrome', detail: 'A textured knit polo with a contrasting collar and an effortlessly refined feel.' },

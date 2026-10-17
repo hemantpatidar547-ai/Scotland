@@ -78,7 +78,7 @@ export default async function Home ()
     <section className="flex flex-col-reverse bg-navy text-white lg:grid lg:grid-cols-2">
       <div className="px-6 pb-10 lg:p-0 flex flex-col justify-center">
         <div className="relative overflow-hidden w-full aspect-[4/5] lg:aspect-auto lg:min-h-[100%] h-full sm:min-h-[450px]">
-          <Image src="/images/italian-looks/cafe-linen-set.jpeg" alt="Linen shirt and relaxed trouser outfit" fill className="object-cover brightness-90 lg:brightness-75" sizes="50vw" />
+          <img src={ homepageShowcase.featuredImage } alt="Featured collection look" className="absolute inset-0 h-full w-full object-cover brightness-90 lg:brightness-75" />
         </div>
       </div>
       <div className="flex items-center px-6 pt-14 pb-8 sm:p-20"><div><p className="eyebrow text-stone/70">The complete look</p><h2 className="mt-3 font-display text-4xl sm:text-5xl leading-[1.1]">The Edinburgh<br />weekender.</h2><p className="mt-4 max-w-sm leading-6 text-stone/90">Easy layers for unplanned detours. A brushed overshirt, relaxed trouser and hardwearing leather boot, selected to work as one.</p><Link className="button mt-8 bg-cream text-navy hover:text-white" href="/complete-looks">Shop this look</Link></div></div>

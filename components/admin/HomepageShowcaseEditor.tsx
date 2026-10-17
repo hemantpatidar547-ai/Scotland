@@ -11,6 +11,7 @@ export function HomepageShowcaseEditor ()
     const [ loading, setLoading ] = useState( true );
     const [ saving, setSaving ] = useState( false );
     const [ uploading, setUploading ] = useState<number[]>( [] );
+    const [ uploadingFeaturedImage, setUploadingFeaturedImage ] = useState( false );
     const [ error, setError ] = useState( '' );
     const [ notice, setNotice ] = useState( '' );
 
@@ -68,6 +69,32 @@ export function HomepageShowcaseEditor ()
         }
     };
 
+    const uploadFeaturedImage = async ( event: ChangeEvent<HTMLInputElement> ) =>
+    {
+        const input = event.currentTarget;
+        const file = input.files?.[ 0 ];
+        if ( !file ) return;
+
+        setError( '' );
+        setUploadingFeaturedImage( true );
+        const formData = new FormData();
+        formData.set( 'file', file );
+        try
+        {
+            const response = await fetch( '/api/admin/product-images', { method: 'POST', body: formData } );
+            const result = await response.json();
+            if ( !response.ok ) throw new Error( result.error || 'Image upload failed.' );
+            update( 'featuredImage', result.url );
+        } catch ( issue )
+        {
+            setError( issue instanceof Error ? issue.message : 'Image upload failed.' );
+        } finally
+        {
+            setUploadingFeaturedImage( false );
+            input.value = '';
+        }
+    };
+
     const save = async ( event: FormEvent<HTMLFormElement> ) =>
     {
         event.preventDefault();
@@ -100,6 +127,27 @@ export function HomepageShowcaseEditor ()
     return <form className="mt-8 space-y-6" onSubmit={ save }>
         { error && <p role="alert" className="border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">{ error }</p> }
         { notice && <p role="status" className="border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">{ notice }</p> }
+
+        <section className="space-y-4 border border-stone bg-white p-5 sm:p-6">
+            <div className="border-b border-stone pb-4">
+                <h2 className="display text-2xl">Featured collection image</h2>
+                <p className="mt-1 text-sm text-zinc-500">This controls the large image beside “The Edinburgh weekender” on the homepage.</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-[1fr_1fr]">
+                <div className="relative aspect-[1.4] overflow-hidden bg-stone">
+                    <img src={ content.featuredImage } alt="Featured collection preview" className="h-full w-full object-cover" />
+                </div>
+                <div className="space-y-4">
+                    <label className="block text-sm font-medium">Image path or public URL
+                        <input className="mt-1 w-full border border-stone px-3 py-2" required value={ content.featuredImage } onChange={ event => update( 'featuredImage', event.target.value ) } />
+                    </label>
+                    <label className="block text-sm font-medium">Upload replacement image
+                        <input className="mt-1 block w-full text-sm" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" disabled={ uploadingFeaturedImage } onChange={ event => void uploadFeaturedImage( event ) } />
+                        <span className="mt-1 block text-xs text-zinc-500">{ uploadingFeaturedImage ? 'Uploading…' : 'JPEG, PNG, WebP, AVIF, or GIF; maximum 4 MB.' }</span>
+                    </label>
+                </div>
+            </div>
+        </section>
 
         <section className="space-y-4 border border-stone bg-white p-5 sm:p-6">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone pb-4">
@@ -155,9 +203,10 @@ export function HomepageShowcaseEditor ()
         </section>
 
         <div className="flex flex-wrap items-center gap-4">
-            <button className="button disabled:opacity-50" type="submit" disabled={ saving || uploading.length > 0 }>
-                { saving ? 'Saving…' : uploading.length ? 'Wait for uploads…' : 'Save homepage content' }
+            <button className="button disabled:opacity-50" type="submit" disabled={ saving || uploading.length > 0 || uploadingFeaturedImage }>
+                { saving ? 'Saving…' : uploading.length || uploadingFeaturedImage ? 'Wait for uploads…' : 'Save homepage content' }
             </button>
+            <span className="text-sm text-zinc-600">After uploading or changing an image, click Save homepage content to publish it.</span>
             <a className="text-sm text-navy underline" href="/" target="_blank" rel="noreferrer">Preview live homepage</a>
         </div>
     </form>;

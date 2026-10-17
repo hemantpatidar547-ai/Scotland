@@ -27,6 +27,7 @@ const showcaseSchema = z.object( {
     title: z.string().trim().min( 1 ).max( 120 ),
     description: z.string().trim().min( 1 ).max( 500 ),
     badge: z.string().trim().max( 80 ),
+    featuredImage: imageSchema,
     cards: z.array( z.object( {
         image: imageSchema,
         title: z.string().trim().min( 1 ).max( 120 ),

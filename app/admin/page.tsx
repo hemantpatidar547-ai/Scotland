@@ -91,6 +91,8 @@ export default async function Admin ()
                         <Link className="button-outline text-center" href="/admin/products/new">Add new product</Link>
                         <Link className="button-outline text-center" href="/admin/orders">Manage all orders</Link>
                         <Link className="button-outline text-center" href="/admin/products">Manage products catalog</Link>
+                        <Link className="button-outline text-center" href="/admin/homepage">Manage homepage content &amp; images</Link>
+                        <Link className="button-outline text-center" href="/admin/seo">SEO &amp; Google Products</Link>
                     </div>
                 </section>
             </div>

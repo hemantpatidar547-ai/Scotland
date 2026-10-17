@@ -1,9 +1,10 @@
 'use client';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Product } from '@/types/product';
+import { buildProductSeoSuggestions } from '@/lib/seo';
 
-const PRESET_CATEGORIES = [ 'Clothing', 'Topwear', 'Bottomwear', 'Footwear', 'Accessories' ];
+const PRESET_CATEGORIES = [ 'Clothing', 'Topwear', 'Bottomwear', 'Footwear', 'Accessories', "Men's T-Shirts", 'Oversized T-Shirts', 'Printed T-Shirts', 'Casual Shirts', 'Premium Shirts' ];
 const PRESET_SUBCATEGORIES = [ 'Shirt', 'Half Shirt', 'Full Shirt', 'Plain Shirt', 'Baggy Shirt', 'T-Shirt', 'Oversized T-Shirt', 'Polo T-Shirt', 'Lower', 'Joggers', 'Jeans', 'Sweatshirt', 'Hoodie', 'Jacket', 'Blazer', 'Shorts', 'Cargo' ];
 const SIZES_LIST = [ 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '28', '30', '32', '34', '36', '38', '40' ];
 const COLORS_LIST = [ 'Black', 'White', 'Navy', 'Grey', 'Red', 'Blue', 'Green', 'Yellow', 'Brown', 'Olive', 'Maroon', 'Pink', 'Orange', 'Purple', 'Beige' ];
@@ -35,11 +36,50 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
 {
     const router = useRouter();
     const [ loading, setLoading ] = useState( false );
+    const formRef = useRef<HTMLFormElement>( null );
+    const [ seoTitle, setSeoTitle ] = useState( initialData?.seo_title || '' );
+    const [ metaDescription, setMetaDescription ] = useState( initialData?.meta_description || '' );
+    const [ focusKeyword, setFocusKeyword ] = useState( initialData?.focus_keyword || '' );
+    const [ imageAltText, setImageAltText ] = useState( initialData?.image_alt_text || '' );
+    const [ canonicalUrl, setCanonicalUrl ] = useState( initialData?.canonical_url || '' );
+    const [ productSlug, setProductSlug ] = useState( initialData?.slug || '' );
+
+    function suggestSeoFields ()
+    {
+        const form = formRef.current;
+        if ( !form ) return;
+        const formData = new FormData( form );
+        const productName = String( formData.get( 'name' ) || '' ).trim();
+        if ( !productName )
+        {
+            alert( 'Enter a product name first so SEO suggestions can be generated.' );
+            return;
+        }
+
+        const finalCategory = customCategory.trim() || selectedCategory;
+        const finalSubcategory = customSubcategory.trim() || selectedSubcategory;
+        const suggestions = buildProductSeoSuggestions( {
+            name: productName,
+            category: finalCategory,
+            subcategory: finalSubcategory,
+            gender: String( formData.get( 'gender' ) || '' ),
+            description: String( formData.get( 'description' ) || '' ),
+            shortDescription: String( formData.get( 'short_description' ) || '' ),
+            brand_name: String( formData.get( 'brand_name' ) || 'SCOTLAND' ),
+            slug: productName,
+        } );
+        setSeoTitle( suggestions.title );
+        setMetaDescription( suggestions.description );
+        setFocusKeyword( suggestions.keyword );
+        setProductSlug( suggestions.slug );
+        setImageAltText( `${ productName }${ finalSubcategory ? ` ${ finalSubcategory }` : '' } by ${ String( formData.get( 'brand_name' ) || 'SCOTLAND' ) }` );
+    }
 
     // Images
     const [ mainImage, setMainImage ] = useState<string | null>( initialData?.image || null );
     const [ gallery, setGallery ] = useState<string[]>( ( initialData?.images || [] ).filter( image => image !== initialData?.image ) );
     const [ sizeChart, setSizeChart ] = useState<string | null>( initialData?.size_chart || null );
+    const [ activeImageUploads, setActiveImageUploads ] = useState( 0 );
 
     // Variants
     const [ selectedSizes, setSelectedSizes ] = useState<string[]>( initialData?.sizes || [] );
@@ -66,19 +106,56 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
     // Publishing
     const [ status, setStatus ] = useState<'draft' | 'published'>( initialData?.status || 'draft' );
 
-    const toBase64 = ( file: File ): Promise<string> =>
-        new Promise( resolve =>
+    const uploadImageFile = async ( file: File ): Promise<string> =>
+    {
+        const formData = new FormData();
+        formData.set( 'file', file );
+        setActiveImageUploads( count => count + 1 );
+        try
         {
-            const r = new FileReader();
-            r.onloadend = () => resolve( r.result as string );
-            r.readAsDataURL( file );
-        } );
+            const response = await fetch( '/api/admin/product-images', { method: 'POST', body: formData } );
+            const result = await response.json().catch( () => ( { error: 'Could not upload image.' } ) );
+            if ( !response.ok ) throw new Error( result.error || 'Could not upload image.' );
+            let publicUrl: URL;
+            try
+            {
+                publicUrl = new URL( result.url );
+            } catch
+            {
+                throw new Error( 'Image storage returned an invalid public URL.' );
+            }
+            if ( publicUrl.protocol !== 'https:' && !( publicUrl.protocol === 'http:' && [ 'localhost', '127.0.0.1' ].includes( publicUrl.hostname ) ) )
+                throw new Error( 'Image storage returned an invalid public URL.' );
+            return publicUrl.toString();
+        } finally
+        {
+            setActiveImageUploads( count => Math.max( 0, count - 1 ) );
+        }
+    };
+
+    const moveLegacyImageToStorage = async ( image: string ): Promise<string> =>
+    {
+        if ( !image.startsWith( 'data:' ) ) return image;
+        const response = await fetch( image );
+        if ( !response.ok ) throw new Error( 'Could not read an existing embedded image.' );
+        const blob = await response.blob();
+        if ( !blob.type.startsWith( 'image/' ) ) throw new Error( 'An existing product image has an unsupported format.' );
+        return uploadImageFile( new File( [ blob ], 'existing-product-image', { type: blob.type } ) );
+    };
 
     const handleGallery = async ( e: React.ChangeEvent<HTMLInputElement> ) =>
     {
+        const input = e.currentTarget;
         const files = Array.from( e.target.files || [] );
-        const results = await Promise.all( files.map( toBase64 ) );
-        setGallery( prev => [ ...prev, ...results ] );
+        input.value = '';
+        try
+        {
+            const results = await Promise.all( files.map( uploadImageFile ) );
+            setGallery( prev => [ ...prev, ...results ] );
+        } catch ( error )
+        {
+            alert( error instanceof Error ? error.message : 'Could not upload gallery images.' );
+        }
     };
 
     const toggleSize = ( s: string ) =>
@@ -153,20 +230,39 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
         const finalCategory = customCategory.trim() || selectedCategory;
         const finalSubcategory = customSubcategory.trim() || selectedSubcategory;
 
+        if ( activeImageUploads > 0 ) { alert( 'Wait for image uploads to finish before saving.' ); setLoading( false ); return; }
         if ( !finalCategory ) { alert( 'Please select or enter a category.' ); setLoading( false ); return; }
         if ( !mainImage ) { alert( 'Please upload a main product image.' ); setLoading( false ); return; }
         if ( selectedSizes.length === 0 ) { alert( 'Please select at least one size.' ); setLoading( false ); return; }
         if ( selectedColors.length === 0 ) { alert( 'Please select at least one color.' ); setLoading( false ); return; }
 
+        let storedMainImage: string;
+        let storedGallery: string[];
+        let storedSizeChart: string | null;
+        try
+        {
+            [ storedMainImage, storedGallery, storedSizeChart ] = await Promise.all( [
+                moveLegacyImageToStorage( mainImage ),
+                Promise.all( gallery.map( moveLegacyImageToStorage ) ),
+                sizeChart ? moveLegacyImageToStorage( sizeChart ) : Promise.resolve( null ),
+            ] );
+        } catch ( error )
+        {
+            alert( error instanceof Error ? error.message : 'Could not store the product images.' );
+            setLoading( false );
+            return;
+        }
+
         const rawData = {
             name: fd.get( 'name' ) as string,
-            slug: ( fd.get( 'name' ) as string ).toLowerCase().replace( /[^a-z0-9]+/g, '-' ).replace( /(^-|-$)/g, '' ),
+            slug: String( fd.get( 'slug' ) || fd.get( 'name' ) ).toLowerCase().normalize( 'NFKD' ).replace( /[\u0300-\u036f]/g, '' ).replace( /[^a-z0-9]+/g, '-' ).replace( /(^-|-$)/g, '' ),
             sku: ( fd.get( 'sku' ) as string ).trim().toUpperCase(),
             category: finalCategory,
             subcategory: finalSubcategory,
             gender: fd.get( 'gender' ) as string,
             short_description: fd.get( 'short_description' ) as string,
             description: fd.get( 'description' ) as string,
+            brand_name: fd.get( 'brand_name' ) as string,
 
             // Pricing
             mrp: Number( fd.get( 'mrp' ) ),
@@ -189,9 +285,9 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
             stock_status: fd.get( 'stock_status' ) as string,
 
             // Images
-            image: mainImage,
-            images: [ mainImage, ...gallery ].filter( Boolean ),
-            size_chart: sizeChart,
+            image: storedMainImage,
+            images: [ storedMainImage, ...storedGallery ].filter( Boolean ),
+            size_chart: storedSizeChart,
 
             // Product Details
             fabric: fd.get( 'fabric' ) as string,
@@ -212,6 +308,12 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
             // SEO
             seo_title: fd.get( 'seo_title' ) as string,
             meta_description: fd.get( 'meta_description' ) as string,
+            focus_keyword: fd.get( 'focus_keyword' ) as string,
+            canonical_url: fd.get( 'canonical_url' ) as string,
+            no_index: fd.get( 'no_index' ) === 'on',
+            image_alt_text: fd.get( 'image_alt_text' ) as string,
+            gtin: fd.get( 'gtin' ) as string,
+            mpn: fd.get( 'mpn' ) as string,
             tags: ( fd.get( 'tags' ) as string ).split( ',' ).map( t => t.trim() ).filter( Boolean ),
 
             // Publishing
@@ -220,8 +322,6 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
             isNew: ( e.currentTarget.querySelector( '#new_arrival' ) as HTMLInputElement )?.checked,
             best_seller: ( e.currentTarget.querySelector( '#best_seller' ) as HTMLInputElement )?.checked,
 
-            rating: 4.5,
-            reviews: 0,
         };
 
         try
@@ -249,7 +349,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
     };
 
     return (
-        <form onSubmit={ submit } className="mt-8 max-w-4xl space-y-6">
+        <form ref={ formRef } onSubmit={ submit } className="mt-8 max-w-4xl space-y-6">
 
             {/* ── 1. Basic Information ── */ }
             <SectionCard title="📋 Basic Information">
@@ -257,8 +357,14 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                     <Field label="Product Name *">
                         <input name="name" required className="input w-full" placeholder="e.g. Glen Brushed Overshirt" defaultValue={ initialData?.name } />
                     </Field>
+                    <Field label="Product URL slug *">
+                        <input name="slug" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" className="input w-full" placeholder="glen-brushed-overshirt" value={ productSlug } onChange={ event => setProductSlug( event.target.value ) } />
+                    </Field>
                     <Field label="SKU *">
                         <input name="sku" required className="input w-full" placeholder="SC-001" defaultValue={ initialData?.sku } />
+                    </Field>
+                    <Field label="Brand">
+                        <input name="brand_name" className="input w-full" placeholder="SCOTLAND" defaultValue={ initialData?.brand_name || 'SCOTLAND' } />
                     </Field>
 
                     {/* Category */ }
@@ -434,6 +540,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
 
             {/* ── 4. Images ── */ }
             <SectionCard title="🖼️ Images">
+                <p className="text-xs leading-5 text-zinc-500">Images are stored in Supabase Storage and delivered through Next.js image optimization. Use JPEG, PNG, WebP, AVIF, or GIF files up to 4 MB.</p>
                 {/* Main Image */ }
                 <div>
                     <p className="text-xs text-zinc-600 font-medium mb-2">Main Image *</p>
@@ -441,10 +548,21 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                         { mainImage
                             ? <img src={ mainImage } alt="Main" className="mx-auto h-36 object-contain rounded" />
                             : <span>Click to upload main image</span> }
-                        <input type="file" accept="image/*" className="hidden" onChange={ async e =>
+                        <input type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" className="hidden" onChange={ async e =>
                         {
+                            const input = e.currentTarget;
                             const f = e.target.files?.[ 0 ];
-                            if ( f ) setMainImage( await toBase64( f ) );
+                            input.value = '';
+                            if ( f )
+                            {
+                                try
+                                {
+                                    setMainImage( await uploadImageFile( f ) );
+                                } catch ( error )
+                                {
+                                    alert( error instanceof Error ? error.message : 'Could not upload the main image.' );
+                                }
+                            }
                         } } />
                     </label>
                 </div>
@@ -462,7 +580,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                         ) ) }
                         <label className="h-20 w-20 border border-dashed border-stone rounded flex items-center justify-center text-2xl text-zinc-400 cursor-pointer hover:border-navy transition">
                             +
-                            <input type="file" multiple accept="image/*" className="hidden" onChange={ handleGallery } />
+                            <input type="file" multiple accept="image/jpeg,image/png,image/webp,image/avif,image/gif" className="hidden" onChange={ handleGallery } />
                         </label>
                     </div>
                 </div>
@@ -474,10 +592,21 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                         { sizeChart
                             ? <img src={ sizeChart } alt="Size Chart" className="mx-auto h-24 object-contain rounded" />
                             : <span>Upload size chart (optional)</span> }
-                        <input type="file" accept="image/*" className="hidden" onChange={ async e =>
+                        <input type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" className="hidden" onChange={ async e =>
                         {
+                            const input = e.currentTarget;
                             const f = e.target.files?.[ 0 ];
-                            if ( f ) setSizeChart( await toBase64( f ) );
+                            input.value = '';
+                            if ( f )
+                            {
+                                try
+                                {
+                                    setSizeChart( await uploadImageFile( f ) );
+                                } catch ( error )
+                                {
+                                    alert( error instanceof Error ? error.message : 'Could not upload the size chart.' );
+                                }
+                            }
                         } } />
                     </label>
                 </div>
@@ -541,12 +670,37 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
             {/* ── 8. SEO ── */ }
             <SectionCard title="🔍 SEO">
                 <div className="grid gap-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-xs leading-5 text-zinc-500">Suggestions are drafts—review and edit them before publishing.</p>
+                        <button type="button" className="button-outline min-h-9 py-2" onClick={ suggestSeoFields }>Suggest from product details</button>
+                    </div>
                     <Field label="SEO Title">
-                        <input name="seo_title" className="input w-full" placeholder="e.g. Buy Glen Brushed Overshirt Online – Scotland" defaultValue={ initialData?.seo_title } />
+                        <input name="seo_title" className="input w-full" maxLength={ 70 } placeholder="e.g. Glen Brushed Overshirt | SCOTLAND" value={ seoTitle } onChange={ event => setSeoTitle( event.target.value ) } />
                     </Field>
                     <Field label="Meta Description">
-                        <textarea name="meta_description" className="input w-full min-h-16" placeholder="Brief description for search engines (max 160 chars)" maxLength={ 160 } defaultValue={ initialData?.meta_description } />
+                        <textarea name="meta_description" className="input w-full min-h-16" placeholder="Accurately describe this product (max 160 characters)" maxLength={ 160 } value={ metaDescription } onChange={ event => setMetaDescription( event.target.value ) } />
                     </Field>
+                    <Field label="Focus keyword">
+                        <input name="focus_keyword" className="input w-full" maxLength={ 100 } placeholder="e.g. men's cotton overshirt" value={ focusKeyword } onChange={ event => setFocusKeyword( event.target.value ) } />
+                    </Field>
+                    <Field label="Canonical URL (leave blank to use this product URL)">
+                        <input name="canonical_url" type="url" className="input w-full" placeholder="https://scotland-eight.vercel.app/products/glen-brushed-overshirt" value={ canonicalUrl } onChange={ event => setCanonicalUrl( event.target.value ) } />
+                    </Field>
+                    <Field label="Main image alt text">
+                        <input name="image_alt_text" className="input w-full" maxLength={ 200 } placeholder="Describe the product shown in the main image" value={ imageAltText } onChange={ event => setImageAltText( event.target.value ) } />
+                    </Field>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <Field label="GTIN / barcode (if assigned)">
+                            <input name="gtin" className="input w-full" defaultValue={ initialData?.gtin || '' } inputMode="numeric" />
+                        </Field>
+                        <Field label="Manufacturer part number (if assigned)">
+                            <input name="mpn" className="input w-full" defaultValue={ initialData?.mpn || '' } />
+                        </Field>
+                    </div>
+                    <label className="flex items-start gap-3 text-sm text-zinc-700">
+                        <input name="no_index" type="checkbox" className="mt-1 h-4 w-4 accent-navy" defaultChecked={ initialData?.no_index } />
+                        <span><strong className="font-medium">Keep this page out of search indexes</strong><span className="mt-1 block text-xs text-zinc-500">Useful for duplicate or intentionally private product pages.</span></span>
+                    </label>
                     <Field label="Tags (comma separated)">
                         <input name="tags" className="input w-full" placeholder="e.g. shirt, men fashion, casual wear, scotland" defaultValue={ initialData?.tags?.join( ', ' ) } />
                     </Field>
@@ -589,8 +743,8 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
 
             {/* Submit */ }
             <div className="flex gap-3 pb-8">
-                <button type="submit" disabled={ loading } className="button flex-1">
-                    { loading ? 'Saving...' : initialData ? '💾 Update Product' : status === 'published' ? '🚀 Publish Product' : '💾 Save as Draft' }
+                <button type="submit" disabled={ loading || activeImageUploads > 0 } className="button flex-1">
+                    { activeImageUploads > 0 ? 'Uploading images...' : loading ? 'Saving...' : initialData ? '💾 Update Product' : status === 'published' ? '🚀 Publish Product' : '💾 Save as Draft' }
                 </button>
                 <button type="button" onClick={ () => router.back() } className="border border-stone px-6 py-2 text-xs hover:border-navy transition">
                     Cancel

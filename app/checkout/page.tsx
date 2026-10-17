@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useState } from 'react';
 import { useStore } from '@/components/StoreProvider';
+import { trackAnalyticsEvent } from '@/lib/analytics';
 
 const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 } ).format( n );
 
@@ -131,6 +132,18 @@ export default function Checkout ()
         } );
         const data = await res.json();
         if ( data.error ) throw new Error( data.error );
+        trackAnalyticsEvent( 'purchase', {
+            transaction_id: data.orderNumber,
+            currency: 'INR',
+            value: data.finalAmount,
+            items: cart.map( item => ( {
+                item_id: item.product.sku || item.product.id,
+                item_name: item.product.name,
+                item_variant: `${ item.color } / ${ item.size }`,
+                price: item.product.salePrice || item.product.price,
+                quantity: item.quantity,
+            } ) ),
+        } );
         return data;
     }
 
@@ -226,6 +239,18 @@ export default function Checkout ()
     async function submit ( e: FormEvent )
     {
         e.preventDefault();
+
+        trackAnalyticsEvent( 'begin_checkout', {
+            currency: 'INR',
+            value: total,
+            items: cart.map( item => ( {
+                item_id: item.product.sku || item.product.id,
+                item_name: item.product.name,
+                item_variant: `${ item.color } / ${ item.size }`,
+                price: item.product.salePrice || item.product.price,
+                quantity: item.quantity,
+            } ) ),
+        } );
 
         const fd = new FormData( e.target as HTMLFormElement );
         const shippingAddress = {

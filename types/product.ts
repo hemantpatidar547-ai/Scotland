@@ -9,6 +9,7 @@ export type Product = {
     name: string;
     shortDescription?: string;
     description: string;
+    updatedAt?: string;
     category: Category;
     subcategory?: string;
     gender: string;
@@ -44,6 +45,9 @@ export type Product = {
         color: string;
         size: string;
         stockQuantity: number;
+        sku?: string;
+        price?: number;
+        salePrice?: number;
     }>;
     stock_quantity?: number;
     low_stock_alert?: number;
@@ -57,6 +61,13 @@ export type Product = {
     // SEO
     seo_title?: string;
     meta_description?: string;
+    focus_keyword?: string;
+    canonical_url?: string;
+    no_index?: boolean;
+    image_alt_text?: string;
+    brand_name?: string;
+    gtin?: string;
+    mpn?: string;
     tags?: string[];
 
     // Publishing

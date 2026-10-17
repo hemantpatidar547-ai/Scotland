@@ -3,6 +3,7 @@ import { isAdminRequest } from '@/lib/admin-auth';
 import { getAdminProductSchemaError } from '@/lib/admin-product-schema';
 import { bustProductCache } from '@/lib/data';
 import { supabaseAdmin } from '@/lib/supabase/server';
+import { isPublicHttpUrl } from '@/lib/seo';
 
 export async function PATCH ( request: Request, props: { params: Promise<{ id: string }> } )
 {
@@ -39,6 +40,8 @@ export async function PUT ( request: Request, props: { params: Promise<{ id: str
     {
         return NextResponse.json( { error: 'Name, SKU, and description are required.' }, { status: 400 } );
     }
+    if ( payload.canonical_url?.trim() && !isPublicHttpUrl( String( payload.canonical_url ).trim() ) )
+        return NextResponse.json( { error: 'Canonical URL must be a valid public HTTP or HTTPS URL.' }, { status: 400 } );
     if (
         !Array.isArray( payload.colors ) || !payload.colors.length ||
         !Array.isArray( payload.sizes ) || !payload.sizes.length ||
@@ -59,6 +62,8 @@ export async function PUT ( request: Request, props: { params: Promise<{ id: str
     const normalizedSlug = String( payload.slug || payload.name )
         .trim()
         .toLowerCase()
+        .normalize( 'NFKD' )
+        .replace( /[\u0300-\u036f]/g, '' )
         .replace( /[^a-z0-9]+/g, '-' )
         .replace( /(^-|-$)/g, '' );
 
@@ -100,26 +105,38 @@ export async function PUT ( request: Request, props: { params: Promise<{ id: str
     {
         const categoryName = String( payload.category ).trim();
         const categorySlug = categoryName.toLowerCase().replace( /[^a-z0-9]+/g, '-' ).replace( /(^-|-$)/g, '' );
-        const { data: category, error: categoryError } = await supabaseAdmin
+        const { data: categoryByName, error: categoryNameError } = await supabaseAdmin
             .from( 'categories' )
             .select( 'id' )
-            .eq( 'slug', categorySlug )
+            .eq( 'name', categoryName )
             .maybeSingle();
-        if ( categoryError ) return NextResponse.json( { error: categoryError.message }, { status: 400 } );
+        if ( categoryNameError ) return NextResponse.json( { error: categoryNameError.message }, { status: 400 } );
 
-        if ( category )
+        if ( categoryByName )
         {
-            categoryId = category.id;
+            categoryId = categoryByName.id;
         } else
         {
-            const { data: createdCategory, error: createCategoryError } = await supabaseAdmin
+            const { data: categoryBySlug, error: categorySlugError } = await supabaseAdmin
                 .from( 'categories' )
-                .insert( { name: categoryName, slug: categorySlug, is_active: true } )
                 .select( 'id' )
-                .single();
-            if ( createCategoryError || !createdCategory )
-                return NextResponse.json( { error: createCategoryError?.message || 'Could not save category.' }, { status: 400 } );
-            categoryId = createdCategory.id;
+                .eq( 'slug', categorySlug )
+                .maybeSingle();
+            if ( categorySlugError ) return NextResponse.json( { error: categorySlugError.message }, { status: 400 } );
+            if ( categoryBySlug )
+            {
+                categoryId = categoryBySlug.id;
+            } else
+            {
+                const { data: createdCategory, error: createCategoryError } = await supabaseAdmin
+                    .from( 'categories' )
+                    .insert( { name: categoryName, slug: categorySlug, is_active: true } )
+                    .select( 'id' )
+                    .single();
+                if ( createCategoryError || !createdCategory )
+                    return NextResponse.json( { error: createCategoryError?.message || 'Could not save category.' }, { status: 400 } );
+                categoryId = createdCategory.id;
+            }
         }
     }
 
@@ -140,6 +157,12 @@ export async function PUT ( request: Request, props: { params: Promise<{ id: str
         size_chart: payload.size_chart,
         seo_title: payload.seo_title,
         meta_description: payload.meta_description,
+        focus_keyword: payload.focus_keyword,
+        canonical_url: payload.canonical_url?.trim() || null,
+        no_index: Boolean( payload.no_index ),
+        image_alt_text: payload.image_alt_text?.trim(),
+        gtin: payload.gtin?.trim() || null,
+        mpn: payload.mpn?.trim() || null,
         tags: payload.tags,
     };
 
@@ -183,6 +206,7 @@ export async function PUT ( request: Request, props: { params: Promise<{ id: str
         .update( {
             name: String( payload.name ).trim(),
             slug: normalizedSlug,
+            brand_name: String( payload.brand_name || 'SCOTLAND' ).trim(),
             ...( skuChanged ? { sku: normalizedSku } : {} ),
             description: String( payload.description ).trim(),
             short_description: payload.short_description || payload.description,
@@ -274,7 +298,9 @@ export async function PUT ( request: Request, props: { params: Promise<{ id: str
         imageUrls.map( ( image_url, index ) => ( {
             product_id: id,
             image_url,
-            alt_text: String( payload.name ).trim(),
+            alt_text: image_url === payload.image
+                ? String( payload.image_alt_text || payload.name ).trim()
+                : `${ String( payload.name ).trim() } - product view ${ index + 1 }`,
             display_order: index,
             is_primary: image_url === payload.image || index === 0,
         } ) )

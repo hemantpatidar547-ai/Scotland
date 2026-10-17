@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Product } from '@/types/product';
 import { useStore } from '@/components/StoreProvider';
 import { ProductCard } from '@/components/ProductCard';
+import { trackAnalyticsEvent } from '@/lib/analytics';
 
 const money = ( n: number ) =>
   new Intl.NumberFormat( 'en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 } ).format( n );
@@ -21,7 +22,7 @@ function DetailRow ( { label, value }: { label: string; value?: string | number 
   );
 }
 
-export function ProductDetails ( { product }: { product: Product } )
+export function ProductDetails ( { product, recommendedProducts }: { product: Product; recommendedProducts: Product[] } )
 {
   const [ size, setSize ] = useState( product.sizes[ 0 ] );
   const [ color, setColor ] = useState( product.colors[ 0 ] );
@@ -29,11 +30,19 @@ export function ProductDetails ( { product }: { product: Product } )
   const [ shareStatus, setShareStatus ] = useState( '' );
   const [ activeImg, setActiveImg ] = useState( 0 );
   const [ activeTab, setActiveTab ] = useState<'details' | 'shipping'>( 'details' );
-  const [ inventoryVariants, setInventoryVariants ] = useState( product.inventoryVariants );
   const { addToCart, toggleFavorite, favorites, isReady, syncError } = useStore();
   const router = useRouter();
   const resumedAdd = useRef( false );
   const [ addingToBag, setAddingToBag ] = useState( false );
+
+  useEffect( () =>
+  {
+    trackAnalyticsEvent( 'view_item', {
+      currency: 'INR',
+      value: product.salePrice || product.price,
+      items: [ { item_id: product.sku || product.id, item_name: product.name } ],
+    } );
+  }, [ product.id, product.name, product.price, product.salePrice, product.sku ] );
 
   const handleAddToBag = async () =>
   {
@@ -108,21 +117,7 @@ export function ProductDetails ( { product }: { product: Product } )
     }
   };
 
-  const [ similar, setSimilar ] = useState<Product[]>( [] );
-  useEffect( () =>
-  {
-    fetch( '/api/products?fresh=1', { cache: 'no-store' } )
-      .then( r => r.json() )
-      .then( data =>
-      {
-        const all: Product[] = data.data;
-        const currentProduct = all.find( p => p.id === product.id );
-        if ( currentProduct ) setInventoryVariants( currentProduct.inventoryVariants );
-        const filtered = all.filter( p => p.category === product.category && p.id !== product.id ).slice( 0, 8 );
-        setSimilar( filtered.length > 0 ? filtered : all.filter( p => p.id !== product.id ).slice( 0, 8 ) );
-      } )
-      .catch( () => setSimilar( [] ) );
-  }, [ product.category, product.id ] );
+  const inventoryVariants = product.inventoryVariants;
 
   const discount = product.mrp && product.salePrice
     ? Math.round( ( ( product.mrp - product.salePrice ) / product.mrp ) * 100 )
@@ -133,6 +128,15 @@ export function ProductDetails ( { product }: { product: Product } )
     <>
       {/* ── Product Detail ── */ }
       <main className="shell py-8 sm:py-12">
+        <nav aria-label="Breadcrumb" className="mb-6 text-xs text-zinc-500">
+          <ol className="flex flex-wrap items-center gap-2">
+            <li><a className="hover:text-navy" href="/">Home</a></li>
+            <li aria-hidden="true">/</li>
+            <li><a className="hover:text-navy" href="/shop">Shop</a></li>
+            <li aria-hidden="true">/</li>
+            <li aria-current="page" className="max-w-[60vw] truncate text-navy">{ product.name }</li>
+          </ol>
+        </nav>
         <div className="grid gap-8 lg:grid-cols-5 lg:gap-14">
 
           {/* ── Images ── */ }
@@ -141,7 +145,7 @@ export function ProductDetails ( { product }: { product: Product } )
             <div className="relative aspect-[.85] w-full overflow-hidden rounded bg-stone">
               <Image
                 src={ product.images[ activeImg ] || product.image }
-                alt={ product.name }
+                alt={ activeImg === 0 ? product.image_alt_text || product.name : `${ product.name } product image ${ activeImg + 1 }` }
                 fill
                 className="object-cover transition-opacity duration-300"
                 sizes="(max-width:1024px) 100vw, 40vw"
@@ -180,10 +184,12 @@ export function ProductDetails ( { product }: { product: Product } )
               </div>
             </div>
 
-            <p className="text-sm text-gold">
-              { '★'.repeat( Math.round( product.rating ) ) }{ '☆'.repeat( 5 - Math.round( product.rating ) ) }
-              <span className="ml-2 text-xs text-zinc-500">{ product.rating } ({ product.reviews } reviews)</span>
-            </p>
+            { product.reviews > 0 && product.rating > 0 ? (
+              <p className="text-sm text-gold">
+                { '★'.repeat( Math.round( product.rating ) ) }{ '☆'.repeat( 5 - Math.round( product.rating ) ) }
+                <span className="ml-2 text-xs text-zinc-500">{ product.rating } ({ product.reviews } reviews)</span>
+              </p>
+            ) : <p className="text-xs text-zinc-500">No reviews yet</p> }
 
             <div className="flex flex-wrap items-baseline gap-3">
               <span className="font-display text-2xl font-semibold text-navy">
@@ -343,14 +349,14 @@ export function ProductDetails ( { product }: { product: Product } )
       </main>
 
       {/* ── You May Also Like ── */ }
-      { similar.length > 0 && (
+      { recommendedProducts.length > 0 && (
         <section className="border-t border-stone bg-[#f9f7f4] py-12">
           <div className="shell">
             <h2 className="display text-2xl mb-8 text-center tracking-wide uppercase text-navy">
               You may also like
             </h2>
             <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-              { similar.map( p => (
+              { recommendedProducts.map( p => (
                 <ProductCard key={ p.id } product={ p } />
               ) ) }
             </div>

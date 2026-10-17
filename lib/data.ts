@@ -47,11 +47,12 @@ let _cacheTimestamp = 0;
 const PRODUCT_QUERY_BATCH_SIZE = 2;
 
 const PRODUCT_SELECT = `
-    id, slug, sku, name, description, short_description, gender, price, mrp, sale_price, discount,
+    id, slug, sku, name, description, short_description, gender, brand_name, price, mrp, sale_price, discount, updated_at,
     average_rating, review_count, material, tax_percentage, cost_price, style_origin, occasion,
     is_new_arrival, is_best_seller, is_featured, status, product_metadata,
-    product_variants(id, color, size, stock_quantity, is_active, image_url),
-    product_images(id, image_url, display_order, is_primary)
+    categories(name, slug, description, seo_title, seo_description),
+    product_variants(id, sku, color, size, price, sale_price, stock_quantity, reserved_quantity, is_active, image_url),
+    product_images(id, image_url, alt_text, display_order, is_primary)
 `;
 
 export function bustProductCache ()
@@ -81,7 +82,8 @@ function formatSupabaseProduct ( product: any ): Product
 
     const productImages = [ ...( product.product_images || [] ) ]
         .sort( ( first: any, second: any ) => Number( first.display_order || 0 ) - Number( second.display_order || 0 ) );
-    const image = productImages.find( ( i: any ) => i.is_primary )?.image_url
+    const primaryImage = productImages.find( ( i: any ) => i.is_primary ) || productImages[ 0 ];
+    const image = primaryImage?.image_url
         || productImages[ 0 ]?.image_url
         || variant?.image_url
         || '/images/brand/scotland-lion.png'; return {
@@ -89,9 +91,10 @@ function formatSupabaseProduct ( product: any ): Product
             slug: product.slug,
             sku: product.sku,
             name: product.name,
+            updatedAt: product.updated_at,
             description: product.description,
             shortDescription: product.short_description || product.description,
-            category: metadata.category || product.categories?.name || 'Clothing',
+            category: product.categories?.name || metadata.category || 'Clothing',
             subcategory: metadata.subcategory,
             gender: product.gender || 'Unisex',
             price: Number( product.price ),
@@ -119,6 +122,13 @@ function formatSupabaseProduct ( product: any ): Product
             stock_status: metadata.stock_status,
             seo_title: metadata.seo_title,
             meta_description: metadata.meta_description,
+            focus_keyword: metadata.focus_keyword,
+            canonical_url: metadata.canonical_url,
+            no_index: metadata.no_index === true,
+            image_alt_text: primaryImage?.alt_text || product.name,
+            brand_name: product.brand_name || 'SCOTLAND',
+            gtin: metadata.gtin,
+            mpn: metadata.mpn,
             cost_price: product.cost_price ? Number( product.cost_price ) : undefined,
             gst: product.tax_percentage ? `${ Number( product.tax_percentage ) }%` : '0%',
             stock: variants.reduce( ( total: number, v: any ) => total + ( Number( v.stock_quantity ) || 0 ), 0 ),
@@ -127,7 +137,10 @@ function formatSupabaseProduct ( product: any ): Product
                 id: v.id,
                 color: v.color || 'Default',
                 size: v.size || 'One size',
-                stockQuantity: Number( v.stock_quantity ) || 0,
+                stockQuantity: Math.max( 0, ( Number( v.stock_quantity ) || 0 ) - ( Number( v.reserved_quantity ) || 0 ) ),
+                sku: v.sku || undefined,
+                price: v.price == null ? undefined : Number( v.price ),
+                salePrice: v.sale_price == null ? undefined : Number( v.sale_price ),
             } ) ),
             styleOrigin: product.style_origin || 'Scotland',
             occasion: product.occasion || 'Everyday',
@@ -158,6 +171,7 @@ async function fetchAllProductsFromDB (): Promise<Product[]>
             const { data, error } = await supabase
                 .from( 'products' )
                 .select( PRODUCT_SELECT )
+                .eq( 'status', 'active' )
                 .order( 'id' )
                 .range( offset, offset + PRODUCT_QUERY_BATCH_SIZE - 1 );
 
@@ -212,7 +226,8 @@ export async function getProductBySlug ( slug: string ): Promise<Product | undef
     // 1. If cache is warm, use it instantly (no network call)
     if ( _cachedProducts && ( Date.now() - _cacheTimestamp ) < CACHE_TTL_MS )
     {
-        return _cachedProducts.find( p => p.slug === slug );
+        const cachedProduct = _cachedProducts.find( p => p.slug === slug );
+        if ( cachedProduct ) return cachedProduct;
     }
 
     const supabase = getSupabase();
@@ -222,6 +237,7 @@ export async function getProductBySlug ( slug: string ): Promise<Product | undef
         .from( 'products' )
         .select( PRODUCT_SELECT )
         .eq( 'slug', slug )
+        .eq( 'status', 'active' )
         .maybeSingle();
 
     if ( error )
@@ -235,6 +251,32 @@ export async function getProductBySlug ( slug: string ): Promise<Product | undef
     }
 
     return data ? formatSupabaseProduct( data ) : undefined;
+}
+
+export async function getProductSlugRedirect ( oldSlug: string ): Promise<string | undefined>
+{
+    const supabase = getSupabaseAdmin();
+    if ( !supabase ) throw new Error( 'Supabase service role is required to resolve product URL redirects.' );
+
+    const { data, error } = await supabase
+        .from( 'product_slug_redirects' )
+        .select( 'products!inner(slug)' )
+        .eq( 'old_slug', oldSlug )
+        .maybeSingle();
+
+    if ( error )
+    {
+        if ( error.code === '42P01' || error.code === 'PGRST205' )
+        {
+            console.warn( 'Product slug redirects are unavailable until supabase/migrations/0005_product_slug_redirects.sql is applied.' );
+            return undefined;
+        }
+        console.error( `Could not resolve product redirect "${ oldSlug }": ${ error.message }` );
+        throw new Error( 'Could not resolve product URL redirect.' );
+    }
+
+    const product = Array.isArray( data?.products ) ? data.products[ 0 ] : data?.products;
+    return product?.slug;
 }
 
 /** Admin version — always fresh (no cache), full data. */

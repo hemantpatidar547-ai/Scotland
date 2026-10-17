@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Product } from '@/types/product';
+import { trackAnalyticsEvent } from '@/lib/analytics';
 
 export type CartItem = {
     product: Product;
@@ -324,6 +325,17 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
                 if ( !saveResponse.ok ) throw new Error( saveResult.error || 'Could not save the item to your account cart.' );
 
                 applyAccountState( saveResult.data as StoredAccountState );
+                trackAnalyticsEvent( 'add_to_cart', {
+                    currency: 'INR',
+                    value: ( product.salePrice || product.price ),
+                    items: [ {
+                        item_id: product.sku || product.id,
+                        item_name: product.name,
+                        item_variant: `${ color } / ${ size }`,
+                        price: product.salePrice || product.price,
+                        quantity: 1,
+                    } ],
+                } );
                 return true;
             } catch ( error )
             {

@@ -3,11 +3,13 @@ import { getAdminProductSchemaError } from '@/lib/admin-product-schema';
 import { bustProductCache } from '@/lib/data';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { supabaseAdmin } from '@/lib/supabase/server';
+import { isPublicHttpUrl } from '@/lib/seo';
 
 type ProductPayload = {
     name?: string;
     slug?: string;
     sku?: string;
+    brand_name?: string;
     description?: string;
     short_description?: string;
     category?: string;
@@ -43,6 +45,12 @@ type ProductPayload = {
     cod?: boolean;
     seo_title?: string;
     meta_description?: string;
+    focus_keyword?: string;
+    canonical_url?: string;
+    no_index?: boolean;
+    image_alt_text?: string;
+    gtin?: string;
+    mpn?: string;
     tags?: string[];
     status?: 'draft' | 'published';
     featured?: boolean;
@@ -67,6 +75,8 @@ export async function POST ( request: Request )
     {
         return NextResponse.json( { error: 'Name, slug, SKU, and description are required.' }, { status: 400 } );
     }
+    if ( payload.canonical_url?.trim() && !isPublicHttpUrl( payload.canonical_url.trim() ) )
+        return NextResponse.json( { error: 'Canonical URL must be a valid public HTTP or HTTPS URL.' }, { status: 400 } );
 
     const normalizedSku = payload.sku.trim().toUpperCase();
     const { data: existingSku, error: skuLookupError } = await supabaseAdmin
@@ -88,6 +98,8 @@ export async function POST ( request: Request )
     const baseSlug = ( payload.slug || payload.name )
         .trim()
         .toLowerCase()
+        .normalize( 'NFKD' )
+        .replace( /[\u0300-\u036f]/g, '' )
         .replace( /[^a-z0-9]+/g, '-' )
         .replace( /(^-|-$)/g, '' );
     let uniqueSlug = baseSlug;
@@ -117,34 +129,48 @@ export async function POST ( request: Request )
     {
         const categoryName = payload.category.trim();
         const categorySlug = categoryName.toLowerCase().replace( /[^a-z0-9]+/g, '-' ).replace( /(^-|-$)/g, '' );
-        const { data: existingCategory, error: categoryLookupError } = await supabaseAdmin
+        const { data: existingCategoryByName, error: categoryNameLookupError } = await supabaseAdmin
             .from( 'categories' )
             .select( 'id' )
-            .eq( 'slug', categorySlug )
+            .eq( 'name', categoryName )
             .maybeSingle();
 
-        if ( categoryLookupError )
+        if ( categoryNameLookupError )
         {
             return NextResponse.json( { error: 'Could not validate category. Please try again.' }, { status: 503 } );
         }
 
-        if ( existingCategory )
+        if ( existingCategoryByName )
         {
-            categoryId = existingCategory.id;
+            categoryId = existingCategoryByName.id;
         }
         else
         {
-            const { data: createdCategory, error: categoryCreateError } = await supabaseAdmin
+            const { data: existingCategoryBySlug, error: categorySlugLookupError } = await supabaseAdmin
+                .from( 'categories' )
+                .select( 'id' )
+                .eq( 'slug', categorySlug )
+                .maybeSingle();
+            if ( categorySlugLookupError )
+                return NextResponse.json( { error: 'Could not validate category URL. Please try again.' }, { status: 503 } );
+
+            if ( existingCategoryBySlug )
+            {
+                categoryId = existingCategoryBySlug.id;
+            } else
+            {
+                const { data: createdCategory, error: categoryCreateError } = await supabaseAdmin
                 .from( 'categories' )
                 .insert( { name: categoryName, slug: categorySlug, is_active: true } )
                 .select( 'id' )
                 .single();
 
-            if ( categoryCreateError || !createdCategory )
-            {
-                return NextResponse.json( { error: categoryCreateError?.message || 'Could not create category.' }, { status: 400 } );
+                if ( categoryCreateError || !createdCategory )
+                {
+                    return NextResponse.json( { error: categoryCreateError?.message || 'Could not create category.' }, { status: 400 } );
+                }
+                categoryId = createdCategory.id;
             }
-            categoryId = createdCategory.id;
         }
     }
 
@@ -167,7 +193,7 @@ export async function POST ( request: Request )
         description: payload.description,
         short_description: payload.short_description || payload.description,
         category_id: categoryId,
-        brand_name: 'SCOTLAND',
+        brand_name: payload.brand_name?.trim() || 'SCOTLAND',
         gender: payload.gender === 'Men' || payload.gender === 'Women' ? payload.gender : 'Unisex',
         style_origin: payload.styleOrigin,
         occasion: payload.occasion,
@@ -195,6 +221,12 @@ export async function POST ( request: Request )
             size_chart: payload.size_chart,
             seo_title: payload.seo_title,
             meta_description: payload.meta_description,
+            focus_keyword: payload.focus_keyword,
+            canonical_url: payload.canonical_url?.trim() || null,
+            no_index: Boolean( payload.no_index ),
+            image_alt_text: payload.image_alt_text?.trim(),
+            gtin: payload.gtin?.trim() || null,
+            mpn: payload.mpn?.trim() || null,
             tags: payload.tags,
         },
         sku: normalizedSku,
@@ -244,7 +276,9 @@ export async function POST ( request: Request )
             imageUrls.map( ( image_url, index ) => ( {
                 product_id: product.id,
                 image_url,
-                alt_text: payload.name,
+                alt_text: index === 0
+                    ? payload.image_alt_text?.trim() || payload.name
+                    : `${ payload.name } - product view ${ index + 1 }`,
                 display_order: index,
                 is_primary: index === 0,
             } ) )

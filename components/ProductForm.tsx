@@ -3,6 +3,7 @@ import { FormEvent, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Product } from '@/types/product';
 import { buildProductSeoSuggestions } from '@/lib/seo';
+import { uploadAdminImage } from '@/lib/admin-image-upload';
 
 const PRESET_CATEGORIES = [ 'Clothing', 'Topwear', 'Bottomwear', 'Footwear', 'Accessories', "Men's T-Shirts", 'Oversized T-Shirts', 'Printed T-Shirts', 'Casual Shirts', 'Premium Shirts' ];
 const PRESET_SUBCATEGORIES = [ 'Shirt', 'Half Shirt', 'Full Shirt', 'Plain Shirt', 'Baggy Shirt', 'T-Shirt', 'Oversized T-Shirt', 'Polo T-Shirt', 'Lower', 'Joggers', 'Jeans', 'Sweatshirt', 'Hoodie', 'Jacket', 'Blazer', 'Shorts', 'Cargo' ];
@@ -108,25 +109,10 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
 
     const uploadImageFile = async ( file: File ): Promise<string> =>
     {
-        const formData = new FormData();
-        formData.set( 'file', file );
         setActiveImageUploads( count => count + 1 );
         try
         {
-            const response = await fetch( '/api/admin/product-images', { method: 'POST', body: formData } );
-            const result = await response.json().catch( () => ( { error: 'Could not upload image.' } ) );
-            if ( !response.ok ) throw new Error( result.error || 'Could not upload image.' );
-            let publicUrl: URL;
-            try
-            {
-                publicUrl = new URL( result.url );
-            } catch
-            {
-                throw new Error( 'Image storage returned an invalid public URL.' );
-            }
-            if ( publicUrl.protocol !== 'https:' && !( publicUrl.protocol === 'http:' && [ 'localhost', '127.0.0.1' ].includes( publicUrl.hostname ) ) )
-                throw new Error( 'Image storage returned an invalid public URL.' );
-            return publicUrl.toString();
+            return await uploadAdminImage( file );
         } finally
         {
             setActiveImageUploads( count => Math.max( 0, count - 1 ) );
@@ -540,7 +526,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
 
             {/* ── 4. Images ── */ }
             <SectionCard title="🖼️ Images">
-                <p className="text-xs leading-5 text-zinc-500">Images are stored in Supabase Storage and delivered through Next.js image optimization. Use JPEG, PNG, WebP, AVIF, or GIF files up to 10 MB.</p>
+                <p className="text-xs leading-5 text-zinc-500">Images upload directly to Supabase Storage; this app does not impose a file-size cap. Your Supabase project’s Storage limit still applies.</p>
                 {/* Main Image */ }
                 <div>
                     <p className="text-xs text-zinc-600 font-medium mb-2">Main Image *</p>
@@ -548,7 +534,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                         { mainImage
                             ? <img src={ mainImage } alt="Main" className="mx-auto h-36 object-contain rounded" />
                             : <span>Click to upload main image</span> }
-                        <input type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" className="hidden" onChange={ async e =>
+                        <input type="file" accept="image/*" className="hidden" onChange={ async e =>
                         {
                             const input = e.currentTarget;
                             const f = e.target.files?.[ 0 ];
@@ -580,7 +566,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                         ) ) }
                         <label className="h-20 w-20 border border-dashed border-stone rounded flex items-center justify-center text-2xl text-zinc-400 cursor-pointer hover:border-navy transition">
                             +
-                            <input type="file" multiple accept="image/jpeg,image/png,image/webp,image/avif,image/gif" className="hidden" onChange={ handleGallery } />
+                            <input type="file" multiple accept="image/*" className="hidden" onChange={ handleGallery } />
                         </label>
                     </div>
                 </div>
@@ -592,7 +578,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                         { sizeChart
                             ? <img src={ sizeChart } alt="Size Chart" className="mx-auto h-24 object-contain rounded" />
                             : <span>Upload size chart (optional)</span> }
-                        <input type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" className="hidden" onChange={ async e =>
+                        <input type="file" accept="image/*" className="hidden" onChange={ async e =>
                         {
                             const input = e.currentTarget;
                             const f = e.target.files?.[ 0 ];

@@ -3,6 +3,7 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { DEFAULT_HOMEPAGE_SHOWCASE, type HomepageShowcase } from '@/types/homepage-showcase';
+import { uploadAdminImage } from '@/lib/admin-image-upload';
 
 export function HomepageShowcaseEditor ()
 {
@@ -52,14 +53,9 @@ export function HomepageShowcaseEditor ()
 
         setError( '' );
         setUploading( previous => [ ...previous, index ] );
-        const formData = new FormData();
-        formData.set( 'file', file );
         try
         {
-            const response = await fetch( '/api/admin/product-images', { method: 'POST', body: formData } );
-            const result = await response.json();
-            if ( !response.ok ) throw new Error( result.error || 'Image upload failed.' );
-            updateCard( index, 'image', result.url );
+            updateCard( index, 'image', await uploadAdminImage( file ) );
         } catch ( issue )
         {
             setError( issue instanceof Error ? issue.message : 'Image upload failed.' );
@@ -78,14 +74,9 @@ export function HomepageShowcaseEditor ()
 
         setError( '' );
         setUploadingFeaturedImage( true );
-        const formData = new FormData();
-        formData.set( 'file', file );
         try
         {
-            const response = await fetch( '/api/admin/product-images', { method: 'POST', body: formData } );
-            const result = await response.json();
-            if ( !response.ok ) throw new Error( result.error || 'Image upload failed.' );
-            update( 'featuredImage', result.url );
+            update( 'featuredImage', await uploadAdminImage( file ) );
         } catch ( issue )
         {
             setError( issue instanceof Error ? issue.message : 'Image upload failed.' );
@@ -149,8 +140,8 @@ export function HomepageShowcaseEditor ()
                         <input className="mt-1 w-full border border-stone px-3 py-2" required value={ content.featuredImage } onChange={ event => update( 'featuredImage', event.target.value ) } />
                     </label>
                     <label className="block text-sm font-medium">Upload replacement image
-                        <input className="mt-1 block w-full text-sm" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" disabled={ uploadingFeaturedImage } onChange={ event => void uploadFeaturedImage( event ) } />
-                        <span className="mt-1 block text-xs text-zinc-500">{ uploadingFeaturedImage ? 'Uploading…' : 'JPEG, PNG, WebP, AVIF, or GIF; maximum 10 MB.' }</span>
+                        <input className="mt-1 block w-full text-sm" type="file" accept="image/*" disabled={ uploadingFeaturedImage } onChange={ event => void uploadFeaturedImage( event ) } />
+                        <span className="mt-1 block text-xs text-zinc-500">{ uploadingFeaturedImage ? 'Uploading…' : 'Image files supported by your browser; no application file-size cap.' }</span>
                     </label>
                 </div>
             </div>
@@ -196,8 +187,8 @@ export function HomepageShowcaseEditor ()
                         <input className="mt-1 w-full border border-stone px-3 py-2" required value={ card.image } onChange={ event => updateCard( index, 'image', event.target.value ) } />
                     </label>
                     <label className="block text-sm font-medium">Upload replacement image
-                        <input className="mt-1 block w-full text-sm" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" disabled={ uploading.includes( index ) } onChange={ event => void uploadImage( index, event ) } />
-                        <span className="mt-1 block text-xs text-zinc-500">{ uploading.includes( index ) ? 'Uploading…' : 'JPEG, PNG, WebP, AVIF, or GIF; maximum 10 MB.' }</span>
+                        <input className="mt-1 block w-full text-sm" type="file" accept="image/*" disabled={ uploading.includes( index ) } onChange={ event => void uploadImage( index, event ) } />
+                        <span className="mt-1 block text-xs text-zinc-500">{ uploading.includes( index ) ? 'Uploading…' : 'Image files supported by your browser; no application file-size cap.' }</span>
                     </label>
                     <label className="block text-sm font-medium">Card title
                         <input className="mt-1 w-full border border-stone px-3 py-2" maxLength={ 120 } required value={ card.title } onChange={ event => updateCard( index, 'title', event.target.value ) } />

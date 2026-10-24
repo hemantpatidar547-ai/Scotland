@@ -57,7 +57,7 @@ export async function POST ( request: Request )
     {
         console.error( 'Supabase product image upload failed:', error );
         return NextResponse.json(
-            { error: 'Image storage is unavailable. Apply supabase/migrations/0006_product_image_storage.sql and try again.' },
+            { error: 'Image upload failed. In the Supabase project used by this website, apply supabase/migrations/0006_product_image_storage.sql to create the image bucket, then try again.' },
             { status: 503 }
         );
     }

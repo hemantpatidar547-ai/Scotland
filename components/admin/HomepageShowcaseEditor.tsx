@@ -13,6 +13,7 @@ export function HomepageShowcaseEditor ()
     const [ uploading, setUploading ] = useState<number[]>( [] );
     const [ uploadingFeaturedImage, setUploadingFeaturedImage ] = useState( false );
     const [ error, setError ] = useState( '' );
+    const [ loadError, setLoadError ] = useState( '' );
     const [ notice, setNotice ] = useState( '' );
 
     useEffect( () =>
@@ -24,7 +25,7 @@ export function HomepageShowcaseEditor ()
                 if ( !response.ok ) throw new Error( result.error || 'Could not load homepage content.' );
                 setContent( result );
             } )
-            .catch( issue => setError( issue instanceof Error ? issue.message : 'Could not load homepage content.' ) )
+            .catch( issue => setLoadError( issue instanceof Error ? issue.message : 'Could not load homepage content.' ) )
             .finally( () => setLoading( false ) );
     }, [] );
 
@@ -123,6 +124,12 @@ export function HomepageShowcaseEditor ()
     };
 
     if ( loading ) return <p className="mt-8 text-sm text-zinc-500">Loading homepage content…</p>;
+    if ( loadError ) return <div role="alert" className="mt-8 space-y-3 border border-rose-200 bg-rose-50 p-5 text-sm text-rose-900">
+        <p className="font-semibold">Homepage settings could not be loaded, so edits cannot be saved yet.</p>
+        <p>{ loadError }</p>
+        <p>In the Supabase project used by this website, open SQL Editor and run migrations <code>0006_product_image_storage.sql</code> and <code>0007_homepage_showcase.sql</code> from <code>Scotland_Frontend/supabase/migrations</code>. Then reload this page. The image bucket migration is needed for uploads; the homepage migration is needed to save content.</p>
+        <button className="button-outline" type="button" onClick={ () => window.location.reload() }>Reload after migrations</button>
+    </div>;
 
     return <form className="mt-8 space-y-6" onSubmit={ save }>
         { error && <p role="alert" className="border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">{ error }</p> }

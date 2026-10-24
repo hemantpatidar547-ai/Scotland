@@ -4,7 +4,7 @@ import { isAdminRequest } from '@/lib/admin-auth';
 import { supabaseAdmin } from '@/lib/supabase/server';
 
 const IMAGE_BUCKET = 'scotland-product-images';
-const MAX_IMAGE_SIZE = 4 * 1024 * 1024;
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 const IMAGE_FORMATS: Record<string, { extension: string; signature: ( bytes: Uint8Array ) => boolean }> = {
     'image/jpeg': { extension: 'jpg', signature: bytes => bytes[ 0 ] === 0xff && bytes[ 1 ] === 0xd8 && bytes[ 2 ] === 0xff },
     'image/png': { extension: 'png', signature: bytes => bytes.length >= 8 && bytes[ 0 ] === 0x89 && bytes[ 1 ] === 0x50 && bytes[ 2 ] === 0x4e && bytes[ 3 ] === 0x47 && bytes[ 4 ] === 0x0d && bytes[ 5 ] === 0x0a && bytes[ 6 ] === 0x1a && bytes[ 7 ] === 0x0a },
@@ -35,7 +35,7 @@ export async function POST ( request: Request )
     if ( !( file instanceof File ) )
         return NextResponse.json( { error: 'Select an image file to upload.' }, { status: 400 } );
     if ( file.size === 0 || file.size > MAX_IMAGE_SIZE )
-        return NextResponse.json( { error: 'Image files must be between 1 byte and 4 MB.' }, { status: 400 } );
+        return NextResponse.json( { error: 'Image files must be between 1 byte and 10 MB.' }, { status: 400 } );
 
     const format = IMAGE_FORMATS[ file.type.toLowerCase() ];
     if ( !format )
@@ -56,8 +56,19 @@ export async function POST ( request: Request )
     if ( error )
     {
         console.error( 'Supabase product image upload failed:', error );
+        const providerMessage = error.message.toLowerCase();
+        if ( providerMessage.includes( 'bucket not found' ) || providerMessage.includes( 'no such bucket' ) )
+            return NextResponse.json(
+                { error: 'The image bucket is missing. Run supabase/migrations/0009_product_image_storage_limit.sql in the Supabase project connected to this website, then try again.' },
+                { status: 503 }
+            );
+        if ( providerMessage.includes( 'size' ) || providerMessage.includes( 'payload too large' ) || providerMessage.includes( 'too large' ) )
+            return NextResponse.json(
+                { error: 'Supabase rejected this image size. Run supabase/migrations/0009_product_image_storage_limit.sql and check the Supabase project-level Storage file size limit is at least 10 MB.' },
+                { status: 413 }
+            );
         return NextResponse.json(
-            { error: 'Image upload failed. In the Supabase project used by this website, apply supabase/migrations/0006_product_image_storage.sql to create the image bucket, then try again.' },
+            { error: `Supabase could not store this image (${ error.message }). Check that the website uses the intended Supabase project and that SUPABASE_SERVICE_ROLE_KEY is valid.` },
             { status: 503 }
         );
     }

@@ -150,7 +150,7 @@ export function HomepageShowcaseEditor ()
                     </label>
                     <label className="block text-sm font-medium">Upload replacement image
                         <input className="mt-1 block w-full text-sm" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" disabled={ uploadingFeaturedImage } onChange={ event => void uploadFeaturedImage( event ) } />
-                        <span className="mt-1 block text-xs text-zinc-500">{ uploadingFeaturedImage ? 'Uploading…' : 'JPEG, PNG, WebP, AVIF, or GIF; maximum 4 MB.' }</span>
+                        <span className="mt-1 block text-xs text-zinc-500">{ uploadingFeaturedImage ? 'Uploading…' : 'JPEG, PNG, WebP, AVIF, or GIF; maximum 10 MB.' }</span>
                     </label>
                 </div>
             </div>
@@ -197,7 +197,7 @@ export function HomepageShowcaseEditor ()
                     </label>
                     <label className="block text-sm font-medium">Upload replacement image
                         <input className="mt-1 block w-full text-sm" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" disabled={ uploading.includes( index ) } onChange={ event => void uploadImage( index, event ) } />
-                        <span className="mt-1 block text-xs text-zinc-500">{ uploading.includes( index ) ? 'Uploading…' : 'JPEG, PNG, WebP, AVIF, or GIF; maximum 4 MB.' }</span>
+                        <span className="mt-1 block text-xs text-zinc-500">{ uploading.includes( index ) ? 'Uploading…' : 'JPEG, PNG, WebP, AVIF, or GIF; maximum 10 MB.' }</span>
                     </label>
                     <label className="block text-sm font-medium">Card title
                         <input className="mt-1 w-full border border-stone px-3 py-2" maxLength={ 120 } required value={ card.title } onChange={ event => updateCard( index, 'title', event.target.value ) } />

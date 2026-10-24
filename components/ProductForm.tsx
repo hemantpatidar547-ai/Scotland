@@ -540,7 +540,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
 
             {/* ── 4. Images ── */ }
             <SectionCard title="🖼️ Images">
-                <p className="text-xs leading-5 text-zinc-500">Images are stored in Supabase Storage and delivered through Next.js image optimization. Use JPEG, PNG, WebP, AVIF, or GIF files up to 4 MB.</p>
+                <p className="text-xs leading-5 text-zinc-500">Images are stored in Supabase Storage and delivered through Next.js image optimization. Use JPEG, PNG, WebP, AVIF, or GIF files up to 10 MB.</p>
                 {/* Main Image */ }
                 <div>
                     <p className="text-xs text-zinc-600 font-medium mb-2">Main Image *</p>

@@ -11,6 +11,10 @@ type Order = {
     orderStatus: string;
     paymentMethod: string;
     paymentStatus: string;
+    subtotal: number;
+    shippingCost: number;
+    couponDiscount: number;
+    tax: number;
     returnStatus: string | null;
     returnReason: string | null;
     returnItems: string[];

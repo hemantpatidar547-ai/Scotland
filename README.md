@@ -33,6 +33,7 @@ Apply the Supabase migrations in order before using admin product editing, check
 10. `supabase/migrations/0010_unlimited_product_image_bucket.sql`
 11. `supabase/migrations/0011_order_cancellation.sql`
 12. `supabase/migrations/0012_customer_returns.sql`
+13. `supabase/migrations/0013_courier_tracking.sql`
 
 `0002` adds the product metadata required by the admin form, `0003` enables atomic stock deduction, and `0004` adds saved customer addresses, user-cart uniqueness/synchronization, order snapshots, profile policies, and customer-account indexes. Run each file in the Supabase SQL Editor for the same project used by the app. The migrations are additive and preserve existing profiles and orders.
 
@@ -51,6 +52,10 @@ Apply the Supabase migrations in order before using admin product editing, check
 `0011` adds safe pre-dispatch order cancellation for customers and admins. It restores ordered variant stock atomically and prevents cancellation after dispatch. Online payment refunds are not automatic; after processing a refund in Razorpay, an admin can mark the payment as refunded in **Admin → Orders**.
 
 `0012` adds customer return requests for selected products within 48 hours of delivery, records checkout policy acceptance and delivery time, and adds admin review/receipt/refund tracking. A ₹35 handling deduction applies once per return parcel, regardless of how many selected products it contains; the original delivery charge is excluded from the refund. Admins must receive and inspect the return before manually processing and marking the refund complete. Show the return policy clearly and have it reviewed for applicable consumer-protection requirements before launch.
+
+`0013` adds the minimum courier status, status timestamp, shipment creation timestamp, and actual courier charge fields to the existing Supabase `orders` table. It powers **Admin → Courier & Billing** and customer order tracking. Apply it after `0012` in the same Supabase project. The admin dashboard can save verified courier/AWB/status/charge details, but it does not create Delhivery shipments or fetch carrier scans. Profit/loss remains unavailable until historical product cost is safely snapshotted per order; the dashboard does not substitute current catalog cost or guess courier fees.
+
+Invoice numbering uses `supabase_invoice_migration.sql`, which must also be applied manually if invoice generation reports that `invoice_number` is missing. Generated invoices should not be treated as tax invoices until actual seller/GST details and tax configuration have been verified.
 
 ## Delhivery courier integration setup
 

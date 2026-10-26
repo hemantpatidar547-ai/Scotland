@@ -1,8 +1,49 @@
 import React, { useState } from 'react';
 
-const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 } ).format( n );
+type BillingItem = {
+    name?: string;
+    size?: string;
+    color?: string;
+    quantity?: number;
+    price?: number;
+    totalPrice?: number;
+};
 
-export default function BillingActions ( { order, onInvoiceGenerated }: { order: any, onInvoiceGenerated: () => void } )
+type BillingOrder = {
+    _id: string;
+    invoiceNumber?: string | null;
+    orderNumber: string;
+    createdAt: string;
+    paymentMethod?: string | null;
+    paymentStatus?: string | null;
+    shippingAddress?: Record<string, string | undefined> | null;
+    userEmail?: string | null;
+    items?: BillingItem[];
+    subtotal?: number | null;
+    shippingCost?: number | null;
+    couponDiscount?: number | null;
+    tax?: number | null;
+    finalAmount?: number | null;
+};
+
+const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 2,
+} ).format( Number.isFinite( n ) ? n : 0 );
+
+const escapeHtml = ( value: unknown ) => String( value ?? '' )
+    .replaceAll( '&', '&amp;' )
+    .replaceAll( '<', '&lt;' )
+    .replaceAll( '>', '&gt;' )
+    .replaceAll( '"', '&quot;' )
+    .replaceAll( "'", '&#39;' );
+
+const lineTotal = ( item: BillingItem ) => Number(
+    item.totalPrice ?? Number( item.price || 0 ) * Number( item.quantity || 1 )
+);
+
+export default function BillingActions ( { order, onInvoiceGenerated }: { order: BillingOrder, onInvoiceGenerated: () => void } )
 {
     const [ generating, setGenerating ] = useState( false );
 
@@ -22,7 +63,7 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
             }
         } catch ( err )
         {
-            alert( 'Something went wrong' );
+            alert( err instanceof Error ? err.message : 'Failed to generate invoice.' );
         } finally
         {
             setGenerating( false );
@@ -31,27 +72,35 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
 
     const getA4Html = () =>
     {
-        const itemsHtml = ( order.items || [] ).map( ( i: any ) => `
+        const itemsHtml = ( order.items || [] ).map( i => `
             <tr>
                 <td>
-                    <strong>${ i.name }</strong><br/>
-                    <span style="color:#666; font-size:11px;">Size: ${ i.size } | Color: ${ i.color }</span>
+                    <strong>${ escapeHtml( i.name || 'Product' ) }</strong><br/>
+                    <span style="color:#666; font-size:11px;">Size: ${ escapeHtml( i.size || '—' ) } | Color: ${ escapeHtml( i.color || '—' ) }</span>
                 </td>
-                <td>${ i.quantity }</td>
-                <td>₹${ i.price }</td>
-                <td style="text-align: right;">₹${ i.quantity * i.price }</td>
+                <td>${ Number( i.quantity || 1 ) }</td>
+                <td>${ money( Number( i.price || 0 ) ) }</td>
+                <td style="text-align: right;">${ money( lineTotal( i ) ) }</td>
             </tr>
-        `).join( '' );
+        ` ).join( '' );
 
-        const subtotal = order.items?.reduce( ( acc: number, cur: any ) => acc + ( cur.price * cur.quantity ), 0 ) || 0;
+        const subtotal = Number( order.subtotal ?? order.items?.reduce( ( acc, item ) => acc + lineTotal( item ), 0 ) ?? 0 );
+        const shipping = Number( order.shippingCost || 0 );
+        const discount = Number( order.couponDiscount || 0 );
+        const tax = Number( order.tax || 0 );
+        const shippingAddress = order.shippingAddress || {};
+        const address = [ shippingAddress.address, shippingAddress.city, shippingAddress.state, shippingAddress.postalCode, shippingAddress.country ]
+            .filter( Boolean )
+            .map( escapeHtml )
+            .join( '<br/>' );
 
         return `
         <html>
         <head>
-            <title>Invoice - ${ order.invoiceNumber || order.orderNumber }</title>
+            <title>Invoice - ${ escapeHtml( order.invoiceNumber || order.orderNumber ) }</title>
             <style>
                 @page { size: A4; margin: 0; }
-                body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40mm; color: #1a1a1a; margin: 0; background: #fff; }
+                body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 16mm; color: #1a1a1a; margin: 0; background: #fff; }
                 .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-bottom: 2px solid #000; padding-bottom: 20px; }
                 .logo-section { display: flex; flex-direction: column; }
                 .logo { font-size: 32px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
@@ -76,19 +125,15 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
             <div class="header">
                 <div class="logo-section">
                     <div class="logo">SCOTLAND</div>
-                    <div class="brand-details">
-                        Premium Clothing & Apparel<br/>
-                        contact@scotland-brand.com<br/>
-                        +91 99999 99999
-                    </div>
+                    <div class="brand-details">Order billing document</div>
                 </div>
                 <div>
-                    <div class="invoice-title">Tax Invoice</div>
+                    <div class="invoice-title">Order Invoice / Receipt</div>
                     <div class="invoice-meta">
-                        <strong>Invoice No:</strong> ${ order.invoiceNumber || 'PENDING' }<br/>
-                        <strong>Order ID:</strong> ${ order.orderNumber }<br/>
+                        <strong>Invoice No:</strong> ${ escapeHtml( order.invoiceNumber || 'Not generated' ) }<br/>
+                        <strong>Order ID:</strong> ${ escapeHtml( order.orderNumber ) }<br/>
                         <strong>Date:</strong> ${ new Date( order.createdAt ).toLocaleDateString( 'en-IN', { day: 'numeric', month: 'long', year: 'numeric' } ) }<br/>
-                        <strong>Payment:</strong> ${ order.paymentMethod.toUpperCase() } (${ order.paymentStatus.toUpperCase() })
+                        <strong>Payment:</strong> ${ escapeHtml( ( order.paymentMethod || 'unknown' ).toUpperCase() ) } (${ escapeHtml( ( order.paymentStatus || 'pending' ).toUpperCase() ) })
                     </div>
                 </div>
             </div>
@@ -97,11 +142,10 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
                 <div class="box">
                     <div class="section-title">Billed & Shipped To</div>
                     <div class="address-text">
-                        <strong>${ order.shippingAddress?.name }</strong><br/>
-                        ${ order.shippingAddress?.address }<br/>
-                        ${ order.shippingAddress?.city }, ${ order.shippingAddress?.postalCode } - ${ order.shippingAddress?.state || '' }<br/>
-                        <strong>Phone:</strong> ${ order.shippingAddress?.phone }<br/>
-                        <strong>Email:</strong> ${ order.userEmail }
+                        <strong>${ escapeHtml( shippingAddress.name || 'Customer' ) }</strong><br/>
+                        ${ address }<br/>
+                        <strong>Phone:</strong> ${ escapeHtml( shippingAddress.phone || '—' ) }<br/>
+                        <strong>Email:</strong> ${ escapeHtml( order.userEmail || shippingAddress.email || '—' ) }
                     </div>
                 </div>
             </div>
@@ -124,22 +168,24 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
                 <div class="totals">
                     <div class="totals-row">
                         <span>Subtotal</span>
-                        <span>₹${ subtotal }</span>
+                        <span>${ money( subtotal ) }</span>
                     </div>
+                    ${ discount > 0 ? `<div class="totals-row"><span>Discount</span><span>−${ money( discount ) }</span></div>` : '' }
                     <div class="totals-row">
                         <span>Shipping</span>
-                        <span>₹50</span>
+                        <span>${ money( shipping ) }</span>
                     </div>
+                    ${ tax > 0 ? `<div class="totals-row"><span>Tax recorded</span><span>${ money( tax ) }</span></div>` : '' }
                     <div class="totals-row total">
                         <span>Final Total</span>
-                        <span>₹${ order.finalAmount }</span>
+                        <span>${ money( Number( order.finalAmount || 0 ) ) }</span>
                     </div>
                 </div>
             </div>
 
             <div class="footer">
                 Thank you for shopping with SCOTLAND.<br/>
-                This is a computer generated invoice and does not require a physical signature.
+                Seller tax details are not configured in this document. Do not treat it as a statutory tax invoice.
             </div>
         </body>
         </html>
@@ -148,23 +194,26 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
 
     const getThermalHtml = () =>
     {
-        const itemsHtml = ( order.items || [] ).map( ( i: any ) => `
+        const itemsHtml = ( order.items || [] ).map( i => `
         <tr class="item-row">
             <td>
-                ${ i.name.substring( 0, 15 ) }<br/>
-                <span style="font-size:10px;">Sz:${ i.size } Col:${ i.color }</span>
+                ${ escapeHtml( ( i.name || 'Product' ).substring( 0, 15 ) ) }<br/>
+                <span style="font-size:10px;">Sz:${ escapeHtml( i.size || '—' ) } Col:${ escapeHtml( i.color || '—' ) }</span>
             </td>
-            <td>${ i.quantity }</td>
-            <td class="right">${ i.quantity * i.price }</td>
+            <td>${ Number( i.quantity || 1 ) }</td>
+            <td class="right">${ money( lineTotal( i ) ) }</td>
         </tr>
-        `).join( '' );
+        ` ).join( '' );
 
-        const subtotal = order.items?.reduce( ( acc: number, cur: any ) => acc + ( cur.price * cur.quantity ), 0 ) || 0;
+        const subtotal = Number( order.subtotal ?? order.items?.reduce( ( acc, item ) => acc + lineTotal( item ), 0 ) ?? 0 );
+        const shipping = Number( order.shippingCost || 0 );
+        const discount = Number( order.couponDiscount || 0 );
+        const tax = Number( order.tax || 0 );
 
         return `
         <html>
         <head>
-            <title>Receipt - ${ order.orderNumber }</title>
+            <title>Receipt - ${ escapeHtml( order.orderNumber ) }</title>
             <style>
                 @page { margin: 0; }
                 body { 
@@ -190,23 +239,22 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
         <body>
             <div class="center">
                 <div class="logo">SCOTLAND</div>
-                Premium Clothing<br/>
-                +91 99999 99999<br/>
+                Order invoice / receipt<br/>
                 --------------------------------
             </div>
             
             <div class="flex-row">
                 Date: ${ new Date( order.createdAt ).toLocaleString() }<br/>
-                Inv No: ${ order.invoiceNumber || 'N/A' }<br/>
-                Order ID: ${ order.orderNumber }<br/>
-                Pay: ${ order.paymentMethod.toUpperCase() } (${ order.paymentStatus })
+                Inv No: ${ escapeHtml( order.invoiceNumber || 'N/A' ) }<br/>
+                Order ID: ${ escapeHtml( order.orderNumber ) }<br/>
+                Pay: ${ escapeHtml( ( order.paymentMethod || 'unknown' ).toUpperCase() ) } (${ escapeHtml( order.paymentStatus || 'pending' ) })
             </div>
             
             <div class="divider"></div>
             
             <div class="customer">
-                To: ${ order.shippingAddress?.name }<br/>
-                Ph: ${ order.shippingAddress?.phone }
+                To: ${ escapeHtml( order.shippingAddress?.name || 'Customer' ) }<br/>
+                Ph: ${ escapeHtml( order.shippingAddress?.phone || '—' ) }
             </div>
             
             <div class="divider"></div>
@@ -229,15 +277,17 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
             <table style="margin: 5px 0;">
                 <tr>
                     <td>Subtotal</td>
-                    <td class="right">${ subtotal }</td>
+                    <td class="right">${ money( subtotal ) }</td>
                 </tr>
+                ${ discount > 0 ? `<tr><td>Discount</td><td class="right">−${ money( discount ) }</td></tr>` : '' }
                 <tr>
                     <td>Shipping</td>
-                    <td class="right">50</td>
+                    <td class="right">${ money( shipping ) }</td>
                 </tr>
+                ${ tax > 0 ? `<tr><td>Tax recorded</td><td class="right">${ money( tax ) }</td></tr>` : '' }
                 <tr>
                     <td class="bold">TOTAL</td>
-                    <td class="right bold">Rs. ${ order.finalAmount }</td>
+                    <td class="right bold">${ money( Number( order.finalAmount || 0 ) ) }</td>
                 </tr>
             </table>
             
@@ -246,7 +296,7 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
             <div class="center" style="margin-top: 10px;">
                 Thank you for shopping!<br/>
                 Visit again.<br/>
-                scotland-brand.com
+                Seller tax details are not configured; not a statutory tax invoice.
             </div>
         </body>
         </html>

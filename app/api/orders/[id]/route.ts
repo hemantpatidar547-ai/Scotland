@@ -17,7 +17,7 @@ export async function GET (
 
         const db = getSupabaseAdmin();
         let query = db.from( 'orders' )
-            .select( 'id, order_number, user_id, user_email, email, shipping_address, items, subtotal, shipping_cost, tax, coupon_code, coupon_discount, final_amount, total_amount, payment_method, payment_status, order_status, tracking_number, courier_name, created_at, updated_at' );
+            .select( 'id, order_number, user_id, user_email, email, shipping_address, items, subtotal, shipping_cost, tax, coupon_code, coupon_discount, final_amount, total_amount, payment_method, payment_status, order_status, tracking_number, courier_name, courier_status, courier_status_updated_at, created_at, updated_at' );
         if ( !isAdminEmail( user.email ) ) query = query.eq( 'user_id', user.id );
 
         const { data: order, error } = /^[0-9a-f-]{36}$/i.test( id )

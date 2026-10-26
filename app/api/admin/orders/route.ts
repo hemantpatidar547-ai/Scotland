@@ -75,6 +75,11 @@ export async function GET ( req: NextRequest )
             returnRefundAmount: o.return_refund_amount,
             returnRequestedAt: o.return_requested_at,
             shippingAddress: o.shipping_address,
+            subtotal: o.subtotal,
+            shippingCost: o.shipping_cost,
+            couponDiscount: o.coupon_discount,
+            tax: o.tax,
+            invoiceNumber: o.invoice_number,
             items: o.items,
             createdAt: o.created_at,
         } ) );

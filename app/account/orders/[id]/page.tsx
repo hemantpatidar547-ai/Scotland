@@ -26,7 +26,7 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
 
     const db = getSupabaseAdmin();
     const query = db.from( 'orders' )
-        .select( 'id, order_number, created_at, order_status, payment_status, payment_method, shipping_address, tracking_number, courier_name, subtotal, shipping_cost, coupon_discount, final_amount, total_amount, items, delivered_at, return_status, return_reason, return_item_indexes, return_requested_at, return_refund_amount' )
+        .select( 'id, order_number, created_at, order_status, payment_status, payment_method, shipping_address, tracking_number, courier_name, courier_status, courier_status_updated_at, subtotal, shipping_cost, coupon_discount, final_amount, total_amount, items, delivered_at, return_status, return_reason, return_item_indexes, return_requested_at, return_refund_amount' )
         .eq( 'user_id', user.id );
     const { data: order, error } = /^[0-9a-f-]{36}$/i.test( id )
         ? await query.eq( 'id', id ).maybeSingle()
@@ -107,7 +107,14 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
                             { order.shipping_address?.phone }
                         </p>
                     </div>
-                    { order.tracking_number && <p className="text-sm">Tracking: { order.courier_name || '' } { order.tracking_number }</p> }
+                    { ( order.tracking_number || order.courier_status ) && <div className="border-t border-stone pt-5">
+                        <h2 className="font-semibold">Delivery tracking</h2>
+                        { order.courier_name && <p className="mt-2 text-sm">{ order.courier_name }</p> }
+                        { order.tracking_number && <p className="mt-1 text-sm">AWB / Tracking: { order.tracking_number }</p> }
+                        { order.courier_status && <p className="mt-1 text-sm">Latest saved status: <span className="font-medium">{ order.courier_status }</span></p> }
+                        { order.courier_status_updated_at && <p className="mt-1 text-xs text-zinc-500">Updated { new Date( order.courier_status_updated_at ).toLocaleString( 'en-IN' ) }</p> }
+                        <p className="mt-2 text-xs text-zinc-500">Tracking updates are shown when the store receives and saves them.</p>
+                    </div> }
                     { canCancel && <CancelOrderButton orderId={ order.id } prepaid={ order.payment_method !== 'cod' && order.payment_status === 'paid' } /> }
                     { order.return_status ? (
                         <div className="mt-5 border-t border-stone pt-5">

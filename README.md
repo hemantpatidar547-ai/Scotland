@@ -31,6 +31,8 @@ Apply the Supabase migrations in order before using admin product editing, check
 8. `supabase/migrations/0008_generalize_homepage_showcase.sql`
 9. `supabase/migrations/0009_product_image_storage_limit.sql`
 10. `supabase/migrations/0010_unlimited_product_image_bucket.sql`
+11. `supabase/migrations/0011_order_cancellation.sql`
+12. `supabase/migrations/0012_customer_returns.sql`
 
 `0002` adds the product metadata required by the admin form, `0003` enables atomic stock deduction, and `0004` adds saved customer addresses, user-cart uniqueness/synchronization, order snapshots, profile policies, and customer-account indexes. Run each file in the Supabase SQL Editor for the same project used by the app. The migrations are additive and preserve existing profiles and orders.
 
@@ -45,6 +47,18 @@ Apply the Supabase migrations in order before using admin product editing, check
 `0009` ensures the public `scotland-product-images` bucket exists and allows image uploads up to 10 MB. Apply it in the Supabase SQL Editor after the earlier migrations. The Supabase project-level Storage file size limit must also be at least 10 MB.
 
 `0010` removes the bucket-specific file-size and MIME-type restrictions. Apply it after `0009` to use direct-to-Supabase signed image uploads without an application or bucket file-size cap. Supabase account/project limits and available storage still apply; set the project Storage limit in Supabase Dashboard to the largest value allowed by your plan. Uploads are restricted to image MIME types by the admin API, and SVG is rejected.
+
+`0011` adds safe pre-dispatch order cancellation for customers and admins. It restores ordered variant stock atomically and prevents cancellation after dispatch. Online payment refunds are not automatic; after processing a refund in Razorpay, an admin can mark the payment as refunded in **Admin → Orders**.
+
+`0012` adds customer return requests for selected products within 48 hours of delivery, records checkout policy acceptance and delivery time, and adds admin review/receipt/refund tracking. A ₹35 handling deduction applies once per return parcel, regardless of how many selected products it contains; the original delivery charge is excluded from the refund. Admins must receive and inspect the return before manually processing and marking the refund complete. Show the return policy clearly and have it reviewed for applicable consumer-protection requirements before launch.
+
+## Delhivery courier integration setup
+
+The application uses Supabase (`public.orders`), not MongoDB. Existing `courier_name` and `tracking_number` order fields are the intended place for basic courier and AWB details; this setup does not add courier tables or shipment data. A server-only configuration helper is available at `lib/delhivery/config.ts`.
+
+When a Delhivery business account is ready, set `DELHIVERY_API_TOKEN` and `DELHIVERY_API_BASE_URL` in the server environment (for local development, `.env.local`; for production, the hosting provider's server-side environment settings). Use the HTTPS API base URL and credentials provided for the account in Delhivery's [official B2C API documentation](https://one.delhivery.com/developer-portal/documents/b2c/). Never use a `NEXT_PUBLIC_` variable or commit the token.
+
+This is configuration groundwork only: no shipment is created, no tracking is polled, and no credentials are verified until the account token and its enabled API workflow are available. Shipment payload, pickup location, labels, and tracking behavior must be wired to the account's current official API documentation before enabling real shipment actions. Do not test with a live account unless you explicitly intend to create a real shipment.
 
 Existing product, variant, category, and size-chart images stored as base64 data URLs must be copied to Storage to reduce page/API payload sizes and make product images eligible for the Merchant Center feed. Back up the project, apply migration `0006`, then run from the project directory:
 

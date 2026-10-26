@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
+import { CancelOrderButton } from '@/components/customer/CancelOrderButton';
+import { ReturnOrderForm } from '@/components/customer/ReturnOrderForm';
 
 type OrderItemSnapshot = {
     productId?: string;
@@ -24,7 +26,7 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
 
     const db = getSupabaseAdmin();
     const query = db.from( 'orders' )
-        .select( 'id, order_number, created_at, order_status, payment_status, payment_method, shipping_address, tracking_number, courier_name, subtotal, shipping_cost, coupon_discount, final_amount, total_amount, items' )
+        .select( 'id, order_number, created_at, order_status, payment_status, payment_method, shipping_address, tracking_number, courier_name, subtotal, shipping_cost, coupon_discount, final_amount, total_amount, items, delivered_at, return_status, return_reason, return_item_indexes, return_requested_at, return_refund_amount' )
         .eq( 'user_id', user.id );
     const { data: order, error } = /^[0-9a-f-]{36}$/i.test( id )
         ? await query.eq( 'id', id ).maybeSingle()
@@ -41,6 +43,9 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
     const currentStatus = String( order.order_status || 'pending_payment' ).toLowerCase();
     const statusIndex = steps.indexOf( currentStatus === 'pending_payment' ? 'pending' : currentStatus );
     const total = Number( order.final_amount ?? order.total_amount ?? 0 );
+    const canCancel = [ 'pending_payment', 'pending', 'new', 'paid', 'confirmed', 'processing', 'packed' ].includes( currentStatus );
+    const deliveredAt = order.delivered_at ? new Date( order.delivered_at ).getTime() : null;
+    const returnWindowOpen = currentStatus === 'delivered' && deliveredAt !== null && Date.now() <= deliveredAt + 48 * 60 * 60 * 1000;
 
     return (
         <main className="shell py-12">
@@ -50,7 +55,10 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
             <p className="mt-3 text-sm text-zinc-600">Placed { new Date( order.created_at ).toLocaleString( 'en-IN' ) }</p>
 
             { order.order_status === 'cancelled' ? (
-                <p className="mt-8 rounded border border-red-200 bg-red-50 p-4 text-red-800">This order has been cancelled.</p>
+                <div className="mt-8 rounded border border-red-200 bg-red-50 p-4 text-red-800">
+                    <p>This order has been cancelled.</p>
+                    { order.payment_method !== 'cod' && order.payment_status === 'paid' && <p className="mt-2 text-sm">Your online payment is still marked as paid. The store admin must process the refund manually; it is not automatic.</p> }
+                </div>
             ) : (
                 <div className="mt-8 grid gap-3 sm:grid-cols-5">
                     { steps.map( ( step, index ) => (
@@ -100,6 +108,27 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
                         </p>
                     </div>
                     { order.tracking_number && <p className="text-sm">Tracking: { order.courier_name || '' } { order.tracking_number }</p> }
+                    { canCancel && <CancelOrderButton orderId={ order.id } prepaid={ order.payment_method !== 'cod' && order.payment_status === 'paid' } /> }
+                    { order.return_status ? (
+                        <div className="mt-5 border-t border-stone pt-5">
+                            <h2 className="font-semibold">Return status: <span className="capitalize">{ String( order.return_status ).replaceAll( '_', ' ' ) }</span></h2>
+                            { Array.isArray( order.return_item_indexes ) && <p className="mt-2 text-sm text-zinc-600">Products: { order.return_item_indexes.map( ( index: number ) => items[ index ]?.name || 'Product' ).join( ', ' ) }</p> }
+                            { order.return_reason && <p className="mt-2 text-sm text-zinc-600">Reason: { order.return_reason }</p> }
+                            { Number.isFinite( Number( order.return_refund_amount ) ) && <p className="mt-2 text-sm">Estimated refund: ₹{ Number( order.return_refund_amount || 0 ).toLocaleString( 'en-IN' ) }</p> }
+                            { order.return_status === 'requested' && <p className="mt-2 text-xs text-zinc-500">The store will review your request. Refund is processed after the return is received and checked.</p> }
+                            { order.return_status === 'refunded' && <p className="mt-2 text-xs text-emerald-700">The store has marked the refund as processed.</p> }
+                        </div>
+                    ) : returnWindowOpen ? (
+                        <ReturnOrderForm
+                            orderId={ order.id }
+                            items={ items }
+                            couponDiscount={ Number( order.coupon_discount || 0 ) }
+                            orderTotal={ total }
+                            deliveryCharge={ Number( order.shipping_cost || 0 ) }
+                        />
+                    ) : currentStatus === 'delivered' && deliveredAt !== null ? (
+                        <p className="mt-5 border-t border-stone pt-5 text-xs text-zinc-500">The 48-hour return window has ended.</p>
+                    ) : null }
                 </aside>
             </div>
         </main>

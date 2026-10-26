@@ -17,6 +17,7 @@ export default function Checkout ()
     const [ paymentMethod, setPaymentMethod ] = useState<'cod' | 'razorpay'>( 'cod' );
     const [ loading, setLoading ] = useState( false );
     const [ mounted, setMounted ] = useState( false );
+    const [ returnPolicyAccepted, setReturnPolicyAccepted ] = useState( false );
     const [ deliveryCharge, setDeliveryCharge ] = useState( 50 );
 
     const [ pincode, setPincode ] = useState( '' );
@@ -121,6 +122,7 @@ export default function Checkout ()
             } ) ),
             shippingAddress,
             paymentMethod,
+            returnPolicyAccepted,
             couponDiscount: 0,
             ...( razorpayData || {} )
         };
@@ -252,6 +254,12 @@ export default function Checkout ()
             } ) ),
         } );
 
+        if ( !returnPolicyAccepted )
+        {
+            alert( 'Please read and accept the delivery, cancellation, and return policy before placing your order.' );
+            return;
+        }
+
         const fd = new FormData( e.target as HTMLFormElement );
         const shippingAddress = {
             name: `${ fd.get( 'firstName' ) } ${ fd.get( 'lastName' ) }`.trim(),
@@ -357,7 +365,27 @@ export default function Checkout ()
                         </p>
                     </section>
 
-                    <button disabled={ !cart.length || loading } className="button w-full disabled:opacity-40 transition flex justify-center items-center">
+                    <section className="border border-stone bg-white p-4">
+                        <h2 className="font-semibold">Delivery, cancellation &amp; return policy</h2>
+                        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-zinc-600">
+                            <li>You may cancel before the order is dispatched.</li>
+                            <li>Request a return within 48 hours of delivery. The return window starts when the order is marked delivered.</li>
+                            <li>A ₹35 return handling fee is deducted once per return parcel, even when it contains multiple products. The original delivery charge is not refundable.</li>
+                            <li>Refund is processed after the returned product is received and checked. Online refunds are handled manually by the store; COD refunds are arranged by customer support.</li>
+                        </ul>
+                        <label className="mt-4 flex items-start gap-2 text-sm">
+                            <input
+                                className="mt-1"
+                                type="checkbox"
+                                required
+                                checked={ returnPolicyAccepted }
+                                onChange={ event => setReturnPolicyAccepted( event.target.checked ) }
+                            />
+                            <span>I have read and agree to this delivery, cancellation, and return policy.</span>
+                        </label>
+                    </section>
+
+                    <button disabled={ !cart.length || loading || !returnPolicyAccepted } className="button w-full disabled:opacity-40 transition flex justify-center items-center">
                         { loading ? 'Processing...' : ( paymentMethod === 'razorpay' ? 'Pay Now securely' : 'Place order (COD)' ) }
                     </button>
                 </form>

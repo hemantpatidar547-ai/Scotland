@@ -60,6 +60,8 @@ export async function POST ( request: NextRequest )
         {
             return NextResponse.json( { error: 'Choose a valid payment method.' }, { status: 400 } );
         }
+        if ( body.returnPolicyAccepted !== true )
+            return NextResponse.json( { error: 'Read and accept the delivery, cancellation, and return policy before placing your order.' }, { status: 400 } );
 
         const auth = await createClient();
         const { data: { user } } = await auth.auth.getUser();

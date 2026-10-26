@@ -11,6 +11,11 @@ type Order = {
     orderStatus: string;
     paymentMethod: string;
     paymentStatus: string;
+    returnStatus: string | null;
+    returnReason: string | null;
+    returnItems: string[];
+    returnRefundAmount: number | null;
+    returnRequestedAt: string | null;
     shippingAddress: any;
     items: any[];
     createdAt: string;
@@ -177,6 +182,89 @@ export default function AdminOrders ()
                 item._id === orderId ? { ...item, orderStatus: previousStatus } : item
             ) );
             alert( e instanceof Error ? e.message : 'Failed to update order status' );
+        } finally
+        {
+            setUpdatingOrderIds( currentIds =>
+            {
+                const nextIds = new Set( currentIds );
+                nextIds.delete( orderId );
+                return nextIds;
+            } );
+        }
+    };
+
+    const updatePaymentStatus = async ( orderId: string, status: string ) =>
+    {
+        const order = orders.find( item => item._id === orderId );
+        if ( !order || order.paymentStatus === status ) return;
+        if ( status === 'refunded' && !window.confirm( 'Only mark this payment refunded after you have completed the refund in your payment provider. Continue?' ) ) return;
+
+        const previousStatus = order.paymentStatus;
+        setOrders( currentOrders => currentOrders.map( item =>
+            item._id === orderId ? { ...item, paymentStatus: status } : item
+        ) );
+        setUpdatingOrderIds( currentIds => new Set( currentIds ).add( orderId ) );
+
+        try
+        {
+            const response = await fetch( '/api/admin/orders', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify( { orderId, paymentStatus: status } ),
+            } );
+            const result = await response.json();
+            if ( !response.ok ) throw new Error( result.error || 'Failed to update payment status' );
+            await fetchOrders( false );
+        } catch ( cause )
+        {
+            setOrders( currentOrders => currentOrders.map( item =>
+                item._id === orderId ? { ...item, paymentStatus: previousStatus } : item
+            ) );
+            alert( cause instanceof Error ? cause.message : 'Failed to update payment status' );
+        } finally
+        {
+            setUpdatingOrderIds( currentIds =>
+            {
+                const nextIds = new Set( currentIds );
+                nextIds.delete( orderId );
+                return nextIds;
+            } );
+        }
+    };
+
+    const updateReturnStatus = async ( orderId: string, status: string ) =>
+    {
+        const order = orders.find( item => item._id === orderId );
+        if ( !order || order.returnStatus === status ) return;
+        if ( status === 'refunded' && !window.confirm( `Confirm you have completed the ₹${ Number( order.returnRefundAmount || 0 ).toLocaleString( 'en-IN' ) } refund outside this dashboard before marking it refunded.` ) ) return;
+
+        const previousStatus = order.returnStatus;
+        const previousPaymentStatus = order.paymentStatus;
+        setOrders( currentOrders => currentOrders.map( item =>
+            item._id === orderId ? {
+                ...item,
+                returnStatus: status,
+                paymentStatus: status === 'refunded' ? 'refunded' : item.paymentStatus,
+            } : item
+        ) );
+        setUpdatingOrderIds( currentIds => new Set( currentIds ).add( orderId ) );
+
+        try
+        {
+            const response = await fetch( '/api/admin/orders', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify( { orderId, returnStatus: status } ),
+            } );
+            const result = await response.json();
+            if ( !response.ok ) throw new Error( result.error || 'Failed to update return status' );
+            await fetchOrders( false );
+        } catch ( cause )
+        {
+            setOrders( currentOrders => currentOrders.map( item =>
+                item._id === orderId ? { ...item, returnStatus: previousStatus, paymentStatus: previousPaymentStatus } : item
+            ) );
+            alert( cause instanceof Error ? cause.message : 'Failed to update return status' );
         } finally
         {
             setUpdatingOrderIds( currentIds =>
@@ -400,6 +488,38 @@ export default function AdminOrders ()
                                                     <option value="returned">Returned</option>
                                                     <option value="refunded">Refunded</option>
                                                 </select>
+                                                <label className="flex flex-col items-end gap-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                                                    Payment
+                                                    <select
+                                                        value={ order.paymentStatus || 'pending' }
+                                                        onChange={ event => void updatePaymentStatus( order._id, event.target.value ) }
+                                                        disabled={ updatingOrderIds.has( order._id ) }
+                                                        className="text-xs font-semibold normal-case tracking-normal border border-stone rounded px-3 py-1.5 outline-none cursor-pointer focus:border-navy capitalize disabled:opacity-60"
+                                                    >
+                                                        <option value="pending">Pending</option>
+                                                        <option value="paid">Paid</option>
+                                                        <option value="failed">Failed</option>
+                                                        <option value="refunded">Refunded</option>
+                                                    </select>
+                                                </label>
+                                                { order.orderStatus === 'cancelled' && order.paymentStatus === 'paid' && (
+                                                    <span className="max-w-48 text-right text-[10px] leading-4 text-amber-700">Online refund is still pending; update this after refunding in Razorpay.</span>
+                                                ) }
+                                                { order.returnStatus && (
+                                                    <div className="w-52 border-t border-stone pt-2 text-right">
+                                                        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Return: { order.returnStatus }</p>
+                                                        { order.returnItems.length > 0 && <p className="mt-1 text-left text-[10px] leading-4 text-zinc-600">Products: { order.returnItems.join( ', ' ) }</p> }
+                                                        { order.returnRefundAmount !== null && <p className="mt-1 text-xs">Est. refund: { money( Number( order.returnRefundAmount || 0 ) ) }</p> }
+                                                        { order.returnReason && <p className="mt-1 text-left text-[10px] leading-4 text-zinc-600">Reason: { order.returnReason }</p> }
+                                                        { order.returnStatus === 'requested' && <div className="mt-2 flex justify-end gap-2">
+                                                            <button type="button" className="text-xs text-emerald-700 underline" disabled={ updatingOrderIds.has( order._id ) } onClick={ () => void updateReturnStatus( order._id, 'approved' ) }>Approve</button>
+                                                            <button type="button" className="text-xs text-rose-700 underline" disabled={ updatingOrderIds.has( order._id ) } onClick={ () => void updateReturnStatus( order._id, 'rejected' ) }>Reject</button>
+                                                        </div> }
+                                                        { order.returnStatus === 'approved' && <button type="button" className="mt-2 text-xs text-navy underline" disabled={ updatingOrderIds.has( order._id ) } onClick={ () => void updateReturnStatus( order._id, 'received' ) }>Mark return received &amp; inspected</button> }
+                                                        { order.returnStatus === 'received' && <button type="button" className="mt-2 text-xs text-emerald-700 underline" disabled={ updatingOrderIds.has( order._id ) } onClick={ () => void updateReturnStatus( order._id, 'refunded' ) }>Mark manual refund complete</button> }
+                                                        { order.returnStatus === 'refunded' && <p className="mt-1 text-xs text-emerald-700">Refund marked complete</p> }
+                                                    </div>
+                                                ) }
 
                                                 <button
                                                     onClick={ () => setExpandedId( expandedId === order._id ? null : order._id ) }

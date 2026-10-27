@@ -3,7 +3,6 @@ import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { bustProductCache } from '@/lib/data';
 
-const VALID_STATUSES = [ 'pending', 'confirmed', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered', 'cancelled', 'returned', 'refunded' ];
 const VALID_PAYMENT_STATUSES = [ 'pending', 'paid', 'failed', 'refunded' ];
 const VALID_RETURN_STATUSES = [ 'approved', 'rejected', 'received', 'refunded' ];
 
@@ -125,8 +124,8 @@ export async function PATCH ( req: NextRequest )
             return NextResponse.json( { error: 'Invalid return status' }, { status: 400 } );
         if ( returnStatus && ( orderStatus || paymentStatus ) )
             return NextResponse.json( { error: 'Update return status separately from order or payment status.' }, { status: 400 } );
-        if ( orderStatus && !VALID_STATUSES.includes( orderStatus ) )
-            return NextResponse.json( { error: 'Invalid order status' }, { status: 400 } );
+        if ( orderStatus && orderStatus !== 'cancelled' )
+            return NextResponse.json( { error: 'Delivery/order progress cannot be changed manually. It must come from the courier integration.' }, { status: 409 } );
         if ( paymentStatus && !VALID_PAYMENT_STATUSES.includes( paymentStatus ) )
             return NextResponse.json( { error: 'Invalid payment status' }, { status: 400 } );
         if ( orderStatus === 'cancelled' && paymentStatus )
@@ -203,15 +202,13 @@ export async function PATCH ( req: NextRequest )
         }
 
         const upd: Record<string, string> = { updated_at: new Date().toISOString() };
-        if ( orderStatus ) upd.order_status = orderStatus;
         if ( paymentStatus ) upd.payment_status = paymentStatus;
 
-        let updateQuery = db.from( 'orders' ).update( upd ).eq( 'id', orderId );
-        if ( orderStatus ) updateQuery = updateQuery.neq( 'order_status', 'cancelled' );
+        const updateQuery = db.from( 'orders' ).update( upd ).eq( 'id', orderId );
         const { data, error } = await updateQuery.select( 'id' ).maybeSingle();
         if ( error ) throw error;
         if ( !data )
-            return NextResponse.json( { error: 'Cancelled orders cannot be reopened or moved to another order status.' }, { status: 409 } );
+            return NextResponse.json( { error: 'Order not found.' }, { status: 404 } );
 
         return NextResponse.json( { success: true } );
     } catch ( err )

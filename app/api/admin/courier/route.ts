@@ -1,21 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
+import { NextResponse } from 'next/server';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
-
-const updateSchema = z.object( {
-    orderId: z.string().uuid(),
-    courierName: z.string().trim().max( 100 ).nullable().optional(),
-    trackingNumber: z.string().trim().max( 120 ).nullable().optional(),
-    courierStatus: z.string().trim().max( 120 ).nullable().optional(),
-    courierShippingCharge: z.number().finite().min( 0 ).nullable().optional(),
-} ).refine( body =>
-    body.courierName !== undefined ||
-    body.trackingNumber !== undefined ||
-    body.courierStatus !== undefined ||
-    body.courierShippingCharge !== undefined,
-    'Provide at least one courier field to update.'
-);
 
 export async function GET ()
 {
@@ -74,23 +59,22 @@ export async function GET ()
             summary: {
                 periodDays: 30,
                 totalOrders: orders.length,
-                preShipping: orders.filter( order =>
-                    !order.trackingNumber &&
-                    ![ 'cancelled', 'delivered', 'returned', 'refunded' ].includes( String( order.orderStatus ).toLowerCase() )
+                ordersWithoutAwb: orders.filter( order =>
+                    !order.trackingNumber && String( order.orderStatus ).toLowerCase() !== 'cancelled'
                 ).length,
+                trackedShipments: orders.filter( order => Boolean( order.trackingNumber ) ).length,
                 inTransit: orders.filter( order =>
-                    /transit|picked.?up|manifest|out.for.delivery/i.test( order.courierStatus || '' ) ||
-                    [ 'shipped', 'out_for_delivery' ].includes( String( order.orderStatus ).toLowerCase() )
+                    Boolean( order.trackingNumber ) &&
+                    /transit|picked.?up|manifest|out.for.delivery/i.test( order.courierStatus || '' )
                 ).length,
                 delivered: orders.filter( order =>
-                    /delivered/i.test( order.courierStatus || '' ) ||
-                    String( order.orderStatus ).toLowerCase() === 'delivered'
+                    Boolean( order.trackingNumber ) && /delivered/i.test( order.courierStatus || '' )
                 ).length,
-                returnsAndRto: orders.filter( order =>
-                    order.returnStatus !== null ||
-                    /rto|return/i.test( order.courierStatus || '' ) ||
-                    String( order.orderStatus ).toLowerCase() === 'returned'
+                courierRto: orders.filter( order =>
+                    Boolean( order.trackingNumber ) && /rto|return/i.test( order.courierStatus || '' )
                 ).length,
+                customerReturnCases: orders.filter( order => order.returnStatus !== null ).length,
+                storeMarkedDelivered: orders.filter( order => String( order.orderStatus ).toLowerCase() === 'delivered' ).length,
                 cancelled: orders.filter( order => String( order.orderStatus ).toLowerCase() === 'cancelled' ).length,
                 paymentCollected,
                 refunds,
@@ -116,68 +100,5 @@ export async function GET ()
             }, { status: 503 } );
         }
         return NextResponse.json( { error: 'Could not load courier dashboard.' }, { status: 500 } );
-    }
-}
-
-export async function PATCH ( request: NextRequest )
-{
-    try
-    {
-        if ( !await isAdminRequest() )
-            return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
-
-        let body: unknown;
-        try
-        {
-            body = await request.json();
-        } catch
-        {
-            return NextResponse.json( { error: 'Invalid request body.' }, { status: 400 } );
-        }
-
-        const parsed = updateSchema.safeParse( body );
-        if ( !parsed.success )
-            return NextResponse.json( { error: parsed.error.issues[ 0 ]?.message || 'Invalid courier details.' }, { status: 400 } );
-
-        const { orderId, ...fields } = parsed.data;
-        const update: Record<string, string | number | null> = {
-            updated_at: new Date().toISOString(),
-        };
-        if ( fields.courierName !== undefined ) update.courier_name = fields.courierName || null;
-        if ( fields.trackingNumber !== undefined ) update.tracking_number = fields.trackingNumber || null;
-        if ( fields.courierStatus !== undefined )
-        {
-            update.courier_status = fields.courierStatus || null;
-            update.courier_status_updated_at = fields.courierStatus ? new Date().toISOString() : null;
-            if ( fields.courierStatus?.trim().toLowerCase() === 'delivered' )
-                update.order_status = 'delivered';
-        }
-        if ( fields.courierShippingCharge !== undefined )
-            update.courier_shipping_charge = fields.courierShippingCharge;
-
-        const { data, error } = await getSupabaseAdmin()
-            .from( 'orders' )
-            .update( update )
-            .eq( 'id', orderId )
-            .select( 'id' )
-            .maybeSingle();
-
-        if ( error ) throw error;
-        if ( !data ) return NextResponse.json( { error: 'Order not found.' }, { status: 404 } );
-        return NextResponse.json( { success: true } );
-    } catch ( error )
-    {
-        console.error( 'Admin courier update error:', error );
-        if (
-            error && typeof error === 'object' &&
-            'code' in error &&
-            ( error.code === '42703' || error.code === 'PGRST204' || error.code === 'PGRST200' )
-        )
-        {
-            return NextResponse.json( {
-                error: 'Courier fields are not installed in Supabase. Apply supabase/migrations/0013_courier_tracking.sql after migrations 0011 and 0012.',
-            }, { status: 503 } );
-        }
-        return NextResponse.json( { error: 'Could not save courier details.' }, { status: 500 } );
     }
 }

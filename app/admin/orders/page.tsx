@@ -158,14 +158,15 @@ export default function AdminOrders ()
         setPage( 1 );
     }, [ search, statusFilter, datePreset, customFrom, customTo ] );
 
-    const updateStatus = async ( orderId: string, status: string ) =>
+    const cancelOrder = async ( orderId: string ) =>
     {
         const order = orders.find( item => item._id === orderId );
-        if ( !order || order.orderStatus === status ) return;
+        if ( !order || order.orderStatus === 'cancelled' ) return;
+        if ( !window.confirm( `Cancel order ${ order.orderNumber }? This restores the reserved stock. Any online refund must be processed separately.` ) ) return;
 
         const previousStatus = order.orderStatus;
         setOrders( currentOrders => currentOrders.map( item =>
-            item._id === orderId ? { ...item, orderStatus: status } : item
+            item._id === orderId ? { ...item, orderStatus: 'cancelled' } : item
         ) );
         setUpdatingOrderIds( currentIds => new Set( currentIds ).add( orderId ) );
 
@@ -174,10 +175,10 @@ export default function AdminOrders ()
             const response = await fetch( '/api/admin/orders', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify( { orderId, orderStatus: status } )
+                body: JSON.stringify( { orderId, orderStatus: 'cancelled' } )
             } );
             const result = await response.json();
-            if ( !response.ok ) throw new Error( result.error || 'Failed to update order status' );
+            if ( !response.ok ) throw new Error( result.error || 'Failed to cancel order' );
 
             await fetchOrders( false );
         } catch ( e )
@@ -471,27 +472,23 @@ export default function AdminOrders ()
 
                                         <td className="p-4 text-right">
                                             <div className="flex flex-col items-end gap-3">
-                                                <select
-                                                    value={ order.orderStatus }
-                                                    onChange={ ( e ) => updateStatus( order._id, e.target.value ) }
+                                                <span className={ `rounded border border-stone px-3 py-1.5 text-xs font-semibold capitalize ${ order.orderStatus === 'delivered' ? 'bg-green-100 text-green-800' :
+                                                    order.orderStatus === 'cancelled' || order.orderStatus === 'returned' ? 'bg-red-100 text-red-800' :
+                                                        'bg-stone-100 text-navy'
+                                                    }` }>
+                                                    Order: { order.orderStatus.replaceAll( '_', ' ' ) }
+                                                </span>
+                                                <span className="max-w-52 text-right text-[10px] leading-4 text-zinc-500">
+                                                    Delivery progress is read-only here and must come from courier tracking.
+                                                </span>
+                                                { ![ 'cancelled', 'shipped', 'out_for_delivery', 'delivered', 'returned', 'refunded' ].includes( order.orderStatus ) && <button
+                                                    type="button"
+                                                    onClick={ () => void cancelOrder( order._id ) }
                                                     disabled={ updatingOrderIds.has( order._id ) }
-                                                    className={ `text-xs font-semibold border border-stone rounded px-3 py-1.5 outline-none cursor-pointer focus:border-navy capitalize ${ order.orderStatus === 'delivered' ? 'bg-green-100 text-green-800' :
-                                                        order.orderStatus === 'cancelled' || order.orderStatus === 'returned' ? 'bg-red-100 text-red-800' :
-                                                            'bg-stone-100 text-navy'
-                                                        } ${ updatingOrderIds.has( order._id ) ? 'opacity-60 cursor-wait' : '' }` }
+                                                    className="text-xs font-semibold text-rose-700 underline disabled:opacity-50"
                                                 >
-                                                    <option value="new">New</option>
-                                                    <option value="pending">Pending</option>
-                                                    <option value="confirmed">Confirmed</option>
-                                                    <option value="processing">Processing</option>
-                                                    <option value="packed">Packed</option>
-                                                    <option value="shipped">Shipped</option>
-                                                    <option value="out_for_delivery">Out for Delivery</option>
-                                                    <option value="delivered">Delivered</option>
-                                                    <option value="cancelled">Cancelled</option>
-                                                    <option value="returned">Returned</option>
-                                                    <option value="refunded">Refunded</option>
-                                                </select>
+                                                    { updatingOrderIds.has( order._id ) ? 'Cancelling…' : 'Cancel order' }
+                                                </button> }
                                                 <label className="flex flex-col items-end gap-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                                                     Payment
                                                     <select

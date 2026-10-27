@@ -561,10 +561,10 @@ export default function AdminOrders ()
                                                         <div>
                                                             <h4 className="uppercase text-[10px] font-bold tracking-widest text-zinc-400 mb-3 border-b border-stone pb-2">Financial Breakdown</h4>
                                                             <div className="text-sm space-y-2">
-                                                                <p><span className="font-semibold w-32 inline-block text-zinc-500">Gross Total:</span> { money( order.items?.reduce( ( acc: number, cur: any ) => acc + ( cur.price * cur.quantity ), 0 ) ) }</p>
-                                                                <p><span className="font-semibold w-32 inline-block text-zinc-500">Discount:</span> ₹0.00</p>
-                                                                <p><span className="font-semibold w-32 inline-block text-zinc-500">Shipping / Extra:</span> ₹50.00</p>
-                                                                <p><span className="font-semibold w-32 inline-block text-zinc-500">Tax/GST:</span> Inclusive</p>
+                                                                <p><span className="font-semibold w-32 inline-block text-zinc-500">Subtotal:</span> { money( order.subtotal ) }</p>
+                                                                <p><span className="font-semibold w-32 inline-block text-zinc-500">Discount:</span> { money( order.couponDiscount ) }</p>
+                                                                <p><span className="font-semibold w-32 inline-block text-zinc-500">Shipping:</span> { money( order.shippingCost ) }</p>
+                                                                <p><span className="font-semibold w-32 inline-block text-zinc-500">Tax recorded:</span> { money( order.tax ) }</p>
                                                                 <div className="border-t border-stone pt-2 mt-2">
                                                                     <p><span className="font-semibold w-32 inline-block text-navy">Final Net Total:</span> <span className="font-bold text-lg text-emerald-700">{ money( order.finalAmount ) }</span></p>
                                                                 </div>

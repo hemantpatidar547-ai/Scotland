@@ -1,108 +1,212 @@
+export const dynamic = 'force-dynamic';
+
 import Link from 'next/link';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { DeliveryChargeToggle } from '@/components/CodChargeToggle';
 
-const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 } ).format( n );
+type DashboardOrder = {
+    id: string;
+    order_number: string;
+    final_amount: number;
+    order_status: string;
+    payment_status: string;
+    payment_method: string;
+    created_at: string;
+    shipping_address: { name?: string } | null;
+    user_email: string | null;
+    email: string | null;
+};
+
+function indiaDayStart ( date: Date )
+{
+    const parts = new Intl.DateTimeFormat( 'en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    } ).formatToParts( date );
+    const values = Object.fromEntries( parts.map( part => [ part.type, part.value ] ) );
+    return new Date( Date.UTC( Number( values.year ), Number( values.month ) - 1, Number( values.day ) ) - 330 * 60 * 1000 );
+}
 
 async function getDashboardStats ()
 {
-    try
+    const db = getSupabaseAdmin();
+    const todayStart = indiaDayStart( new Date() );
+    const dayStarts = Array.from( { length: 7 }, ( _, index ) =>
+        new Date( todayStart.getTime() - ( 6 - index ) * 24 * 60 * 60 * 1000 )
+    );
+
+    const dailyResults = await Promise.all( dayStarts.map( async ( start, index ) =>
     {
-        const db = getSupabaseAdmin();
-        const { data: orders } = await db.from( 'orders' ).select( '*' ).order( 'created_at', { ascending: false } );
+        const end = index === dayStarts.length - 1
+            ? new Date()
+            : dayStarts[ index + 1 ];
+        const { count, error } = await db.from( 'orders' )
+            .select( 'id', { count: 'exact', head: true } )
+            .gte( 'created_at', start.toISOString() )
+            .lt( 'created_at', end.toISOString() );
+        if ( error ) throw error;
+        return {
+            date: start.toISOString(),
+            label: new Intl.DateTimeFormat( 'en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', day: 'numeric' } ).format( start ),
+            count: count || 0,
+        };
+    } ) );
 
-        const allOrders = orders || [];
-        const totalSales = allOrders.reduce( ( sum, order ) => sum + ( order.final_amount || 0 ), 0 );
-        const totalOrders = allOrders.length;
-        const pendingOrders = allOrders.filter( o => o.order_status === 'pending' || o.order_status === 'processing' ).length;
+    const [ { count: totalOrders, error: totalError }, { data: recentOrders, error: recentError } ] = await Promise.all( [
+        db.from( 'orders' ).select( 'id', { count: 'exact', head: true } ),
+        db.from( 'orders' )
+            .select( 'id, order_number, final_amount, order_status, payment_status, payment_method, created_at, shipping_address, user_email, email' )
+            .order( 'created_at', { ascending: false } )
+            .limit( 6 ),
+    ] );
+    if ( totalError ) throw totalError;
+    if ( recentError ) throw recentError;
 
-        const recentOrders = allOrders.slice( 0, 5 ).map( o => ( {
-            id: o.id,
-            number: o.order_number,
-            customer: o.shipping_address?.name || o.user_email || 'Unknown',
-            amount: o.final_amount || 0,
-            status: o.order_status || 'pending'
-        } ) );
-
-        return { sales: totalSales, totalOrders, pending: pendingOrders, recentOrders };
-    } catch
-    {
-        return { sales: 0, totalOrders: 0, pending: 0, recentOrders: [] };
-    }
+    return {
+        totalOrders: totalOrders || 0,
+        todayOrders: dailyResults[ dailyResults.length - 1 ]?.count || 0,
+        weekOrders: dailyResults.reduce( ( total, day ) => total + day.count, 0 ),
+        dailyOrders: dailyResults,
+        recentOrders: ( recentOrders || [] ) as DashboardOrder[],
+    };
 }
 
 export default async function Admin ()
 {
-    const stats = await getDashboardStats();
+    let stats: Awaited<ReturnType<typeof getDashboardStats>> | null = null;
+    let loadError = false;
+    try
+    {
+        stats = await getDashboardStats();
+    } catch ( error )
+    {
+        console.error( 'Admin dashboard data error:', error );
+        loadError = true;
+    }
 
-    const cards = [
-        [ money( stats.sales ), 'Total sales' ],
-        [ stats.totalOrders.toString(), 'Total orders' ],
-        [ stats.pending.toString(), 'Pending orders' ],
-        [ '0', 'Low-stock products' ] // Placeholder for low stock logic
-    ];
+    const money = ( amount: number ) => new Intl.NumberFormat( 'en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        maximumFractionDigits: 0,
+    } ).format( amount || 0 );
+    const maxDailyOrders = Math.max( 1, ...( stats?.dailyOrders.map( day => day.count ) || [] ) );
 
     return (
-        <main className="shell py-10 sm:py-12">
-            <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-end sm:justify-between">
+        <main className="shell py-8 sm:py-10">
+            <div className="flex flex-col items-start justify-between gap-5 border-b border-stone pb-6 sm:flex-row sm:items-end">
                 <div>
-                    <p className="eyebrow">Admin dashboard</p>
-                    <h1 className="display mt-3 text-4xl sm:text-5xl">Store overview</h1>
+                    <p className="eyebrow text-zinc-500">Store operations</p>
+                    <h1 className="display mt-2 text-4xl text-navy sm:text-5xl">Admin dashboard</h1>
+                    <p className="mt-2 text-sm text-zinc-600">A clear view of order volume and the work that needs attention.</p>
                 </div>
-                <Link className="button w-full sm:w-auto" href="/admin/products">Manage products</Link>
+                <Link className="button w-full text-center sm:w-auto" href="/admin/orders">Open order management</Link>
             </div>
 
-            <div className="mt-8 grid gap-3 sm:mt-10 sm:grid-cols-2 lg:grid-cols-4">
-                { cards.map( ( [ n, t ] ) => (
-                    <div className="bg-white p-5 border border-stone shadow-sm" key={ t }>
-                        <p className="eyebrow text-zinc-500">{ t }</p>
-                        <p className="mt-3 text-3xl font-semibold">{ n }</p>
-                    </div>
-                ) ) }
-            </div>
+            { loadError ? (
+                <p className="mt-6 border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800" role="alert">
+                    Dashboard data could not be loaded. Check the server logs and Supabase connection; figures are not being shown as zero.
+                </p>
+            ) : stats && <>
+                <section className="mt-6 grid gap-3 sm:grid-cols-3">
+                    <MetricCard label="Orders today" value={ stats.todayOrders } hint="India time · since midnight" />
+                    <MetricCard label="Orders in last 7 days" value={ stats.weekOrders } hint="Daily counts shown below" />
+                    <MetricCard label="All-time orders" value={ stats.totalOrders } hint="All orders in the store database" />
+                </section>
 
-            <div className="mt-8 grid gap-5 sm:mt-10 lg:grid-cols-2">
-                <section className="bg-white p-5 sm:p-6 border border-stone shadow-sm">
-                    <div className="flex justify-between items-center mb-5">
-                        <h2 className="display text-2xl">Recent orders</h2>
-                        <Link href="/admin/orders" className="text-xs uppercase tracking-widest text-navy underline decoration-navy/30 hover:decoration-navy">View all</Link>
+                <section className="mt-6 border border-stone bg-white p-5 shadow-sm sm:p-6">
+                    <div className="flex flex-wrap items-end justify-between gap-3">
+                        <div>
+                            <h2 className="display text-2xl text-navy">Orders by day</h2>
+                            <p className="mt-1 text-sm text-zinc-500">New orders grouped by India calendar day.</p>
+                        </div>
+                        <span className="text-xs text-zinc-500">Last 7 days · Asia/Kolkata</span>
                     </div>
-                    { stats.recentOrders.length === 0 ? (
-                        <p className="text-sm text-zinc-500">No orders yet.</p>
-                    ) : (
-                        stats.recentOrders.map( o => (
-                            <div key={ o.id } className="border-b border-stone py-4 text-sm flex justify-between items-center">
-                                <div>
-                                    <span className="font-semibold text-navy">{ o.number }</span>
-                                    <span className="text-zinc-500 ml-2">— { o.customer } —</span>
-                                    <span className="ml-1 font-medium">{ money( o.amount ) }</span>
+                    <div className="mt-6 grid grid-cols-7 gap-2 sm:gap-4" aria-label="Order count for each of the last seven days">
+                        { stats.dailyOrders.map( day => (
+                            <div key={ day.date } className="flex min-w-0 flex-col items-center gap-2">
+                                <span className="text-xs font-semibold text-navy">{ day.count }</span>
+                                <div className="flex h-32 w-full items-end justify-center bg-stone/30">
+                                    <div
+                                        className="w-2/3 max-w-10 bg-gold transition-[height]"
+                                        style={ { height: `${ Math.max( day.count ? 8 : 2, day.count / maxDailyOrders * 100 ) }%` } }
+                                        title={ `${ day.count } orders` }
+                                    />
                                 </div>
-                                <span className={ `text-xs uppercase font-semibold tracking-wider ${ o.status === 'delivered' ? 'text-emerald-600' : 'text-orange-600' }` }>
-                                    { o.status }
-                                </span>
+                                <span className="text-[11px] text-zinc-500">{ day.label }</span>
                             </div>
-                        ) )
-                    ) }
-                </section>
-
-                <section className="bg-white p-5 sm:p-6 border border-stone shadow-sm">
-                    <h2 className="display text-2xl mb-5">Quick actions</h2>
-                    <div className="grid gap-3">
-                        <Link className="button-outline text-center" href="/admin/products/new">Add new product</Link>
-                        <Link className="button-outline text-center" href="/admin/orders">Manage all orders</Link>
-                        <Link className="button-outline text-center" href="/admin/courier">Courier tracking &amp; billing</Link>
-                        <Link className="button-outline text-center" href="/admin/products">Manage products catalog</Link>
-                        <Link className="button-outline text-center" href="/admin/homepage">Manage homepage content &amp; images</Link>
-                        <Link className="button-outline text-center" href="/admin/seo">SEO &amp; Google Products</Link>
+                        ) ) }
                     </div>
                 </section>
-            </div>
 
-            { /* COD Settings Panel */ }
-            <div className="mt-8">
-                <h2 className="display text-xl mb-3">Delivery Settings</h2>
-                <DeliveryChargeToggle />
-            </div>
+                <section className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_0.8fr]">
+                    <div className="border border-stone bg-white p-5 shadow-sm sm:p-6">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                            <div>
+                                <h2 className="display text-2xl text-navy">Recent orders</h2>
+                                <p className="mt-1 text-sm text-zinc-500">Latest orders from the store database.</p>
+                            </div>
+                            <Link href="/admin/orders" className="shrink-0 text-sm font-semibold text-navy underline">View all</Link>
+                        </div>
+                        { stats.recentOrders.length === 0 ? (
+                            <p className="py-6 text-sm text-zinc-500">No orders have been placed yet.</p>
+                        ) : (
+                            <div className="divide-y divide-stone">
+                                { stats.recentOrders.map( order => (
+                                    <Link
+                                        key={ order.id }
+                                        href="/admin/orders"
+                                        className="flex flex-col gap-2 py-4 text-sm transition hover:bg-stone/10 sm:flex-row sm:items-center sm:justify-between"
+                                    >
+                                        <div>
+                                            <p className="font-semibold text-navy">{ order.order_number }</p>
+                                            <p className="mt-1 text-xs text-zinc-500">
+                                                { order.shipping_address?.name || order.user_email || order.email || 'Customer' }
+                                                {' · '}
+                                                { new Date( order.created_at ).toLocaleString( 'en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' } ) }
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3 sm:justify-end">
+                                            <span className="text-xs capitalize text-zinc-600">{ order.order_status.replaceAll( '_', ' ' ) }</span>
+                                            <span className="font-semibold text-navy">{ money( Number( order.final_amount ) ) }</span>
+                                        </div>
+                                    </Link>
+                                ) ) }
+                            </div>
+                        ) }
+                    </div>
+
+                    <div className="border border-stone bg-white p-5 shadow-sm sm:p-6">
+                        <h2 className="display text-2xl text-navy">Operations</h2>
+                        <p className="mt-1 text-sm text-zinc-500">Open the right workspace for each task.</p>
+                        <div className="mt-5 grid gap-3">
+                            <Link className="button-outline text-center" href="/admin/orders">Review orders, returns &amp; invoices</Link>
+                            <Link className="button-outline text-center" href="/admin/courier">Courier &amp; billing</Link>
+                            <Link className="button-outline text-center" href="/admin/products">Manage products</Link>
+                            <Link className="button-outline text-center" href="/admin/products/new">Add product</Link>
+                            <Link className="button-outline text-center" href="/admin/homepage">Homepage content &amp; images</Link>
+                        </div>
+                        <p className="mt-5 border-l-2 border-amber-400 pl-3 text-xs leading-5 text-zinc-600">
+                            Delivery progress must come from the courier. Shipment creation and live location remain unavailable until the account&apos;s official API workflow supports them.
+                        </p>
+                    </div>
+                </section>
+
+                <section className="mt-8">
+                    <h2 className="display mb-3 text-xl text-navy">Delivery settings</h2>
+                    <DeliveryChargeToggle />
+                </section>
+            </> }
         </main>
     );
+}
+
+function MetricCard ( { label, value, hint }: { label: string; value: number; hint: string } )
+{
+    return <article className="border border-stone bg-white p-5 shadow-sm">
+        <p className="text-sm text-zinc-500">{ label }</p>
+        <p className="mt-2 text-3xl font-semibold text-navy">{ value.toLocaleString( 'en-IN' ) }</p>
+        <p className="mt-1 text-xs text-zinc-500">{ hint }</p>
+    </article>;
 }

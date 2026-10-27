@@ -64,6 +64,8 @@ export async function GET ( req: NextRequest )
             userEmail: o.user_email || o.email,
             finalAmount: o.final_amount,
             orderStatus: o.order_status,
+            courierDispatchQueued: Boolean( o.courier_dispatch_queued ),
+            trackingNumber: o.tracking_number,
             paymentMethod: o.payment_method,
             paymentStatus: o.payment_status,
             returnStatus: o.return_status,

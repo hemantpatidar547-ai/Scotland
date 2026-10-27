@@ -11,16 +11,25 @@ export async function GET ()
 
         const since = new Date();
         since.setDate( since.getDate() - 30 );
-        const { data, error } = await getSupabaseAdmin()
-            .from( 'orders' )
-            .select( 'id, order_number, created_at, order_status, payment_status, payment_method, final_amount, total_amount, shipping_cost, courier_name, tracking_number, courier_status, courier_status_updated_at, courier_shipping_charge, shipping_address, items, return_status, return_refund_amount' )
-            .gte( 'created_at', since.toISOString() )
-            .order( 'created_at', { ascending: false } )
-            .limit( 200 );
+        const db = getSupabaseAdmin();
+        const selection = 'id, order_number, created_at, order_status, payment_status, payment_method, final_amount, total_amount, shipping_cost, courier_name, tracking_number, courier_status, courier_status_updated_at, courier_shipping_charge, courier_dispatch_queued, shipping_address, user_email, email, items, return_status, return_refund_amount';
+        const [ { data, error }, { data: queuedData, error: queuedError, count: queuedCount } ] = await Promise.all( [
+            db.from( 'orders' )
+                .select( selection, { count: 'exact' } )
+                .gte( 'created_at', since.toISOString() )
+                .order( 'created_at', { ascending: false } )
+                .limit( 200 ),
+            db.from( 'orders' )
+                .select( selection )
+                .eq( 'courier_dispatch_queued', true )
+                .order( 'created_at', { ascending: false } )
+                .limit( 200 ),
+        ] );
 
         if ( error ) throw error;
+        if ( queuedError ) throw queuedError;
 
-        const orders = ( data || [] ).map( order => ( {
+        const mapOrder = ( order: NonNullable<typeof data>[number] ) => ( {
             id: order.id,
             orderNumber: order.order_number,
             createdAt: order.created_at,
@@ -34,14 +43,27 @@ export async function GET ()
             courierStatus: order.courier_status,
             courierStatusUpdatedAt: order.courier_status_updated_at,
             courierShippingCharge: order.courier_shipping_charge === null ? null : Number( order.courier_shipping_charge ),
+            courierDispatchQueued: Boolean( order.courier_dispatch_queued ),
             customerName: order.shipping_address?.name || 'Customer',
             customerPhone: order.shipping_address?.phone || '',
+            customerEmail: order.user_email || order.email || '',
+            shippingAddress: order.shipping_address,
+            items: Array.isArray( order.items ) ? order.items.map( ( item: Record<string, unknown> ) => ( {
+                name: String( item.name || 'Product' ),
+                quantity: Number( item.quantity || 0 ),
+                size: item.size ? String( item.size ) : '',
+                color: item.color ? String( item.color ) : '',
+                sku: item.sku ? String( item.sku ) : '',
+                unitPrice: Number( item.price || 0 ),
+            } ) ) : [],
             itemCount: Array.isArray( order.items )
                 ? order.items.reduce( ( count: number, item: { quantity?: number } ) => count + Number( item.quantity || 0 ), 0 )
                 : 0,
             returnStatus: order.return_status,
             returnRefundAmount: order.return_refund_amount === null ? null : Number( order.return_refund_amount ),
-        } ) );
+        } );
+        const orders = ( data || [] ).map( mapOrder );
+        const queuedOrders = ( queuedData || [] ).map( mapOrder );
 
         const paymentCollected = orders.reduce( ( total, order ) =>
             order.paymentStatus === 'paid' ? total + order.amount : total, 0 );
@@ -56,9 +78,11 @@ export async function GET ()
 
         return NextResponse.json( {
             data: orders,
+            queuedOrders,
             summary: {
                 periodDays: 30,
                 totalOrders: orders.length,
+                awaitingCourierSubmission: queuedCount || 0,
                 ordersWithoutAwb: orders.filter( order =>
                     !order.trackingNumber && String( order.orderStatus ).toLowerCase() !== 'cancelled'
                 ).length,
@@ -96,7 +120,7 @@ export async function GET ()
         )
         {
             return NextResponse.json( {
-                error: 'Courier fields are not installed in Supabase. Apply supabase/migrations/0013_courier_tracking.sql after migrations 0011 and 0012.',
+                error: 'Courier fields are not installed in Supabase. Apply migrations 0013_courier_tracking.sql and 0014_courier_dispatch_queue.sql after 0011 and 0012.',
             }, { status: 503 } );
         }
         return NextResponse.json( { error: 'Could not load courier dashboard.' }, { status: 500 } );

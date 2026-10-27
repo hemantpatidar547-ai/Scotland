@@ -9,6 +9,8 @@ type Order = {
     userEmail: string;
     finalAmount: number;
     orderStatus: string;
+    courierDispatchQueued: boolean;
+    trackingNumber: string | null;
     paymentMethod: string;
     paymentStatus: string;
     subtotal: number;
@@ -27,6 +29,16 @@ type Order = {
 };
 
 const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 } ).format( n );
+const blockedCourierStatuses = new Set( [ 'cancelled', 'shipped', 'out_for_delivery', 'delivered', 'returned', 'refunded' ] );
+
+function canQueueForCourier ( order: Order )
+{
+    const status = order.orderStatus.toLowerCase();
+    const paymentMethod = ( order.paymentMethod || '' ).toLowerCase();
+    return !order.courierDispatchQueued &&
+        !blockedCourierStatuses.has( status ) &&
+        ( ( order.paymentStatus || '' ).toLowerCase() === 'paid' || paymentMethod === 'cod' );
+}
 
 const getDateRange = ( preset: string ) =>
 {
@@ -281,6 +293,43 @@ export default function AdminOrders ()
         }
     };
 
+    const setCourierQueue = async ( orderId: string, queued: boolean ) =>
+    {
+        const order = orders.find( item => item._id === orderId );
+        if ( !order || order.courierDispatchQueued === queued ) return;
+
+        setOrders( currentOrders => currentOrders.map( item =>
+            item._id === orderId ? { ...item, courierDispatchQueued: queued } : item
+        ) );
+        setUpdatingOrderIds( currentIds => new Set( currentIds ).add( orderId ) );
+
+        try
+        {
+            const response = await fetch( `/api/admin/orders/${ encodeURIComponent( orderId ) }/courier-queue`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify( { queued } ),
+            } );
+            const result = await response.json();
+            if ( !response.ok ) throw new Error( result.error || 'Could not update courier queue.' );
+            await fetchOrders( false );
+        } catch ( cause )
+        {
+            setOrders( currentOrders => currentOrders.map( item =>
+                item._id === orderId ? { ...item, courierDispatchQueued: order.courierDispatchQueued } : item
+            ) );
+            alert( cause instanceof Error ? cause.message : 'Could not update courier queue.' );
+        } finally
+        {
+            setUpdatingOrderIds( currentIds =>
+            {
+                const nextIds = new Set( currentIds );
+                nextIds.delete( orderId );
+                return nextIds;
+            } );
+        }
+    };
+
     const handleClearFilters = () =>
     {
         setDatePreset( 'this_month' );
@@ -297,9 +346,12 @@ export default function AdminOrders ()
             <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-stone pb-6 mb-6 gap-4">
                 <div>
                     <h1 className="display text-4xl text-navy">Order Management</h1>
-                    <p className="text-sm text-zinc-500 mt-2">Manage fulfillments, billing, and order histories.</p>
+                    <p className="text-sm text-zinc-500 mt-2">Review full order details. Confirm dispatch-ready orders to add them to Courier &amp; Billing; this does not contact the carrier yet.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
+                    <Link href="/admin/courier" className="text-xs font-semibold text-navy underline">
+                        Open courier queue
+                    </Link>
                     <input
                         type="text"
                         placeholder="Search ID, Name, Phone, Email..."
@@ -481,6 +533,29 @@ export default function AdminOrders ()
                                                 <span className="max-w-52 text-right text-[10px] leading-4 text-zinc-500">
                                                     Delivery progress is read-only here and must come from courier tracking.
                                                 </span>
+                                                { order.courierDispatchQueued && <span className="rounded bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">
+                                                    Confirmed · in courier queue (API pending)
+                                                </span> }
+                                                { canQueueForCourier( order ) && <button
+                                                    type="button"
+                                                    onClick={ () => void setCourierQueue( order._id, true ) }
+                                                    disabled={ updatingOrderIds.has( order._id ) }
+                                                    className="button-outline text-xs disabled:opacity-50"
+                                                >
+                                                    { updatingOrderIds.has( order._id ) ? 'Updating…' : 'Confirm & queue for courier' }
+                                                </button> }
+                                                { !order.courierDispatchQueued && !blockedCourierStatuses.has( order.orderStatus.toLowerCase() ) && ( order.paymentStatus || '' ).toLowerCase() !== 'paid' && ( order.paymentMethod || '' ).toLowerCase() !== 'cod' && <span className="max-w-52 text-right text-[10px] leading-4 text-amber-700">Online payment must be completed before courier confirmation.</span> }
+                                                { order.courierDispatchQueued && !order.trackingNumber && <button
+                                                    type="button"
+                                                    onClick={ () => void setCourierQueue( order._id, false ) }
+                                                    disabled={ updatingOrderIds.has( order._id ) }
+                                                    className="text-xs font-semibold text-zinc-600 underline disabled:opacity-50"
+                                                >
+                                                    Remove from courier queue
+                                                </button> }
+                                                { order.courierDispatchQueued && <Link href="/admin/courier" className="text-xs font-semibold text-navy underline">
+                                                    View in courier section
+                                                </Link> }
                                                 { ![ 'cancelled', 'shipped', 'out_for_delivery', 'delivered', 'returned', 'refunded' ].includes( order.orderStatus ) && <button
                                                     type="button"
                                                     onClick={ () => void cancelOrder( order._id ) }

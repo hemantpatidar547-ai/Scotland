@@ -16,8 +16,25 @@ type CourierOrder = {
     courierStatus: string | null;
     courierStatusUpdatedAt: string | null;
     courierShippingCharge: number | null;
+    courierDispatchQueued: boolean;
     customerName: string;
     customerPhone: string;
+    customerEmail: string;
+    shippingAddress: {
+        address?: string;
+        city?: string;
+        state?: string;
+        country?: string;
+        postalCode?: string;
+    } | null;
+    items: Array<{
+        name: string;
+        quantity: number;
+        size: string;
+        color: string;
+        sku: string;
+        unitPrice: number;
+    }>;
     itemCount: number;
     returnStatus: string | null;
     returnRefundAmount: number | null;
@@ -25,9 +42,11 @@ type CourierOrder = {
 
 type DashboardData = {
     data: CourierOrder[];
+    queuedOrders: CourierOrder[];
     summary: {
         periodDays: number;
         totalOrders: number;
+        awaitingCourierSubmission: number;
         ordersWithoutAwb: number;
         trackedShipments: number;
         inTransit: number;
@@ -57,6 +76,7 @@ export default function CourierDashboard ()
     const [ loading, setLoading ] = useState( true );
     const [ error, setError ] = useState( '' );
     const [ search, setSearch ] = useState( '' );
+    const [ updatingQueueIds, setUpdatingQueueIds ] = useState<Set<string>>( new Set() );
 
     async function loadDashboard ()
     {
@@ -80,12 +100,41 @@ export default function CourierDashboard ()
     useEffect( () => { void loadDashboard(); }, [] );
 
     const summary = dashboard?.summary;
+    async function removeFromCourierQueue ( orderId: string )
+    {
+        setError( '' );
+        setUpdatingQueueIds( current => new Set( current ).add( orderId ) );
+        try
+        {
+            const response = await fetch( `/api/admin/orders/${ encodeURIComponent( orderId ) }/courier-queue`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify( { queued: false } ),
+            } );
+            const result = await response.json();
+            if ( !response.ok ) throw new Error( result.error || 'Could not remove the order from the courier queue.' );
+            await loadDashboard();
+        } catch ( cause )
+        {
+            setError( cause instanceof Error ? cause.message : 'Could not remove the order from the courier queue.' );
+        } finally
+        {
+            setUpdatingQueueIds( current =>
+            {
+                const next = new Set( current );
+                next.delete( orderId );
+                return next;
+            } );
+        }
+    }
+
     const visibleOrders = ( dashboard?.data || [] ).filter( order =>
         `${ order.orderNumber } ${ order.customerName } ${ order.customerPhone } ${ order.trackingNumber || '' }`
             .toLowerCase()
             .includes( search.toLowerCase() )
     );
     const cards = summary ? [
+        { label: 'Confirmed for courier · API pending', value: summary.awaitingCourierSubmission, tone: 'text-amber-700' },
         { label: 'Orders without AWB', value: summary.ordersWithoutAwb, tone: 'text-amber-700' },
         { label: 'AWBs / tracking saved', value: summary.trackedShipments, tone: 'text-sky-700' },
         { label: 'Courier status: in transit', value: summary.inTransit, tone: 'text-blue-700' },
@@ -127,6 +176,63 @@ export default function CourierDashboard ()
                 </article> ) }
             </div>
             <p className="mt-3 text-xs text-zinc-500">For comparison, { summary.storeMarkedDelivered } orders are marked delivered in the store database; this is not counted as courier-confirmed delivery.</p>
+
+            <section className="mt-8 border border-amber-200 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex flex-col gap-3 border-b border-stone pb-4 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                        <h2 className="display text-2xl text-navy">Confirmed for courier</h2>
+                        <p className="mt-1 text-sm text-zinc-600">These orders were confirmed by admin and queued here. They have not been sent to Delhivery yet.</p>
+                    </div>
+                    <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900">
+                        { dashboard.queuedOrders.length } waiting for API
+                    </span>
+                </div>
+                { dashboard.queuedOrders.length === 0 ? (
+                    <p className="py-6 text-sm text-zinc-500">No orders are waiting in the courier queue. Confirm an eligible order from Order Management.</p>
+                ) : (
+                    <div className="mt-4 space-y-3">
+                        { dashboard.queuedOrders.map( order => <article key={ order.id } className="border border-stone bg-stone/10 p-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                    <a className="font-semibold text-navy underline" href="/admin/orders">{ order.orderNumber }</a>
+                                    <p className="mt-1 text-sm font-medium">{ order.customerName } · { order.customerPhone || 'No phone saved' }</p>
+                                    { order.customerEmail && <p className="text-xs text-zinc-600">{ order.customerEmail }</p> }
+                                    <p className="mt-1 text-xs text-zinc-600">
+                                        {[ order.shippingAddress?.address, order.shippingAddress?.city, order.shippingAddress?.state, order.shippingAddress?.postalCode ]
+                                            .filter( Boolean )
+                                            .join( ', ' ) || 'Shipping address not available'}
+                                    </p>
+                                </div>
+                                <div className="text-left sm:text-right">
+                                    <p className="font-semibold text-navy">{ money( order.amount ) }</p>
+                                    <p className="mt-1 text-xs capitalize text-zinc-600">{ order.paymentMethod || 'Payment' } · { order.paymentStatus }</p>
+                                    <p className="mt-2 text-xs font-semibold text-amber-800">Confirmed internally · carrier submission pending</p>
+                                </div>
+                            </div>
+                            <div className="mt-4 border-t border-stone pt-3">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Products · { order.itemCount } units</p>
+                                <ul className="mt-2 space-y-1 text-sm">
+                                    { order.items.map( ( item, index ) => <li key={ `${ order.id }-${ index }` }>
+                                        { item.name } · Qty { item.quantity }
+                                        { item.size && ` · ${ item.size }` }
+                                        { item.color && ` · ${ item.color }` }
+                                        { ` · ${ money( item.unitPrice ) } each` }
+                                        { item.sku && <span className="text-xs text-zinc-500"> · SKU { item.sku }</span> }
+                                    </li> ) }
+                                </ul>
+                                <button
+                                    type="button"
+                                    onClick={ () => void removeFromCourierQueue( order.id ) }
+                                    disabled={ updatingQueueIds.has( order.id ) || Boolean( order.trackingNumber ) }
+                                    className="mt-3 text-xs font-semibold text-zinc-600 underline disabled:opacity-50"
+                                >
+                                    { updatingQueueIds.has( order.id ) ? 'Updating…' : 'Remove from queue' }
+                                </button>
+                            </div>
+                        </article> ) }
+                    </div>
+                ) }
+            </section>
 
             <section className="mt-8">
                 <div className="flex flex-col gap-3 border-b border-stone pb-4 sm:flex-row sm:items-end sm:justify-between">

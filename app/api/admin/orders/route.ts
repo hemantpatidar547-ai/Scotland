@@ -5,6 +5,7 @@ import { bustProductCache } from '@/lib/data';
 
 const VALID_PAYMENT_STATUSES = [ 'pending', 'paid', 'failed', 'refunded' ];
 const VALID_RETURN_STATUSES = [ 'approved', 'rejected', 'received', 'refunded' ];
+const VALID_ORDER_STATUSES = [ 'pending_payment', 'paid', 'processing', 'packed', 'shipped', 'delivered', 'cancelled', 'refunded' ];
 
 /* ── GET /api/admin/orders ─── */
 export async function GET ( req: NextRequest )
@@ -15,48 +16,52 @@ export async function GET ( req: NextRequest )
 
         const { searchParams } = new URL( req.url );
         const status = searchParams.get( 'status' );
-        const search = searchParams.get( 'search' );
-        const page = parseInt( searchParams.get( 'page' ) || '1' );
-        const limit = parseInt( searchParams.get( 'limit' ) || '20' );
-        const fromDate = searchParams.get( 'from_date' );
-        const toDate = searchParams.get( 'to_date' );
+        if ( status && status !== 'all' && !VALID_ORDER_STATUSES.includes( status ) )
+            return NextResponse.json( { error: 'Invalid order status filter.' }, { status: 400 } );
+        const search = ( searchParams.get( 'search' ) || '' ).trim().replace( /[%_,().]/g, ' ' ).slice( 0, 100 );
+        const requestedPage = Number.parseInt( searchParams.get( 'page' ) || '1', 10 );
+        const requestedLimit = Number.parseInt( searchParams.get( 'limit' ) || '20', 10 );
+        const page = Number.isSafeInteger( requestedPage ) && requestedPage > 0 ? Math.min( requestedPage, 100000 ) : 1;
+        const limit = Number.isSafeInteger( requestedLimit ) && requestedLimit > 0 ? Math.min( requestedLimit, 100 ) : 20;
+        const rawFromDate = searchParams.get( 'from_date' );
+        const rawToDate = searchParams.get( 'to_date' );
+        const fromDate = rawFromDate && Number.isFinite( Date.parse( rawFromDate ) ) ? new Date( rawFromDate ).toISOString() : null;
+        const toDate = rawToDate && Number.isFinite( Date.parse( rawToDate ) ) ? new Date( rawToDate ).toISOString() : null;
+        if ( rawFromDate && !fromDate || rawToDate && !toDate )
+            return NextResponse.json( { error: 'Invalid order date range.' }, { status: 400 } );
+        if ( fromDate && toDate && fromDate > toDate )
+            return NextResponse.json( { error: 'The start date must be before the end date.' }, { status: 400 } );
 
         const db = getSupabaseAdmin();
-
-        // Base query for stats (unpaginated, only fetching required fields for stats)
-        let statsQuery = db.from( 'orders' ).select( 'final_amount, order_status' );
 
         // Base query for paginated results
         let query = db.from( 'orders' ).select( '*', { count: 'exact' } ).order( 'created_at', { ascending: false } );
 
         if ( status && status !== 'all' )
         {
-            statsQuery = statsQuery.eq( 'order_status', status );
             query = query.eq( 'order_status', status );
         }
 
         if ( search )
         {
             const orString = 'order_number.ilike.%' + search + '%,user_email.ilike.%' + search + '%,shipping_address->>name.ilike.%' + search + '%,shipping_address->>phone.ilike.%' + search + '%';
-            statsQuery = statsQuery.or( orString );
             query = query.or( orString );
         }
 
         if ( fromDate )
         {
-            statsQuery = statsQuery.gte( 'created_at', fromDate );
             query = query.gte( 'created_at', fromDate );
         }
         if ( toDate )
         {
-            statsQuery = statsQuery.lte( 'created_at', toDate );
             query = query.lte( 'created_at', toDate );
         }
 
         const from = ( page - 1 ) * limit;
         query = query.range( from, from + limit - 1 );
 
-        const { data: orders, count } = await query;
+        const { data: orders, count, error: ordersError } = await query;
+        if ( ordersError ) throw ordersError;
 
         const mappedOrders = ( orders || [] ).map( o => ( {
             _id: o.id,
@@ -85,18 +90,47 @@ export async function GET ( req: NextRequest )
             createdAt: o.created_at,
         } ) );
 
-        const { data: statsData } = await statsQuery;
+        const getFilteredCount = async ( orderStatus?: string, paymentStatus?: string, paymentMethod?: string ) =>
+        {
+            let countQuery = db.from( 'orders' ).select( 'id', { count: 'exact', head: true } );
+            if ( search )
+            {
+                const orString = 'order_number.ilike.%' + search + '%,user_email.ilike.%' + search + '%,shipping_address->>name.ilike.%' + search + '%,shipping_address->>phone.ilike.%' + search + '%';
+                countQuery = countQuery.or( orString );
+            }
+            if ( fromDate ) countQuery = countQuery.gte( 'created_at', fromDate );
+            if ( toDate ) countQuery = countQuery.lte( 'created_at', toDate );
+            if ( orderStatus ) countQuery = countQuery.eq( 'order_status', orderStatus );
+            if ( paymentStatus ) countQuery = countQuery.eq( 'payment_status', paymentStatus );
+            if ( paymentMethod ) countQuery = countQuery.eq( 'payment_method', paymentMethod );
+            const { count, error } = await countQuery;
+            if ( error ) throw error;
+            return count || 0;
+        };
+        const [ totalOrders, pendingOrders, processingOrders, packedOrders, shippedOrders, deliveredOrders, cancelledOrders, refundedOrders, paidPayments, codPendingPayments ] = await Promise.all( [
+            getFilteredCount(),
+            getFilteredCount( 'pending_payment' ),
+            getFilteredCount( 'processing' ),
+            getFilteredCount( 'packed' ),
+            getFilteredCount( 'shipped' ),
+            getFilteredCount( 'delivered' ),
+            getFilteredCount( 'cancelled' ),
+            getFilteredCount( 'refunded' ),
+            getFilteredCount( undefined, 'paid' ),
+            getFilteredCount( undefined, 'pending', 'cod' ),
+        ] );
 
         const summary = {
-            totalOrders: statsData?.length || 0,
-            totalSales: statsData?.reduce( ( sum, o ) => sum + ( o.final_amount || 0 ), 0 ) || 0,
-            newOrders: statsData?.filter( o => o.order_status === 'new' ).length || 0,
-            pendingOrders: statsData?.filter( o => o.order_status === 'pending' ).length || 0,
-            processingOrders: statsData?.filter( o => o.order_status === 'processing' ).length || 0,
-            shippedOrders: statsData?.filter( o => o.order_status === 'shipped' ).length || 0,
-            deliveredOrders: statsData?.filter( o => o.order_status === 'delivered' ).length || 0,
-            cancelledOrders: statsData?.filter( o => o.order_status === 'cancelled' ).length || 0,
-            refundedOrders: statsData?.filter( o => o.order_status === 'refunded' ).length || 0,
+            totalOrders,
+            pendingOrders,
+            processingOrders,
+            packedOrders,
+            shippedOrders,
+            deliveredOrders,
+            cancelledOrders,
+            refundedOrders,
+            paidPayments,
+            codPendingPayments,
         };
 
         return NextResponse.json( {
@@ -120,8 +154,29 @@ export async function PATCH ( req: NextRequest )
     {
         if ( !await isAdminRequest() ) return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
-        const { orderId, orderStatus, paymentStatus, returnStatus } = await req.json();
-        if ( !orderId ) return NextResponse.json( { error: 'Order ID required' }, { status: 400 } );
+        const origin = req.headers.get( 'origin' );
+        if ( origin && origin !== req.nextUrl.origin )
+            return NextResponse.json( { error: 'Invalid request origin.' }, { status: 403 } );
+
+        let body: unknown;
+        try
+        {
+            body = await req.json();
+        } catch
+        {
+            return NextResponse.json( { error: 'Request body must be valid JSON.' }, { status: 400 } );
+        }
+        if ( !body || typeof body !== 'object' || Array.isArray( body ) )
+            return NextResponse.json( { error: 'A valid order update is required.' }, { status: 400 } );
+        const { orderId, orderStatus, paymentStatus, returnStatus } = body as Record<string, unknown>;
+        if ( typeof orderId !== 'string' || !orderId.trim() || orderId.length > 100 )
+            return NextResponse.json( { error: 'A valid order ID is required.' }, { status: 400 } );
+        if ( orderStatus !== undefined && typeof orderStatus !== 'string' )
+            return NextResponse.json( { error: 'Invalid order status.' }, { status: 400 } );
+        if ( paymentStatus !== undefined && typeof paymentStatus !== 'string' )
+            return NextResponse.json( { error: 'Invalid payment status.' }, { status: 400 } );
+        if ( returnStatus !== undefined && typeof returnStatus !== 'string' )
+            return NextResponse.json( { error: 'Invalid return status.' }, { status: 400 } );
         if ( returnStatus && !VALID_RETURN_STATUSES.includes( returnStatus ) )
             return NextResponse.json( { error: 'Invalid return status' }, { status: 400 } );
         if ( returnStatus && ( orderStatus || paymentStatus ) )
@@ -130,6 +185,8 @@ export async function PATCH ( req: NextRequest )
             return NextResponse.json( { error: 'Delivery/order progress cannot be changed manually. It must come from the courier integration.' }, { status: 409 } );
         if ( paymentStatus && !VALID_PAYMENT_STATUSES.includes( paymentStatus ) )
             return NextResponse.json( { error: 'Invalid payment status' }, { status: 400 } );
+        if ( !orderStatus && !paymentStatus && !returnStatus )
+            return NextResponse.json( { error: 'Choose a supported order, payment, or return update.' }, { status: 400 } );
         if ( orderStatus === 'cancelled' && paymentStatus )
             return NextResponse.json( { error: 'Cancel the order first, then update its payment status after manually processing any refund.' }, { status: 400 } );
 

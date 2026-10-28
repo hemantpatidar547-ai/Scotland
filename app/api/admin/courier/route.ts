@@ -15,13 +15,15 @@ export async function GET ()
         const selection = 'id, order_number, created_at, order_status, payment_status, payment_method, final_amount, total_amount, shipping_cost, courier_name, tracking_number, courier_status, courier_status_updated_at, courier_shipping_charge, courier_dispatch_queued, shipping_address, user_email, email, items, return_status, return_refund_amount';
         const [ { data, error }, { data: queuedData, error: queuedError, count: queuedCount } ] = await Promise.all( [
             db.from( 'orders' )
-                .select( selection, { count: 'exact' } )
+                .select( selection )
                 .gte( 'created_at', since.toISOString() )
+                .eq( 'courier_hidden', false )
                 .order( 'created_at', { ascending: false } )
                 .limit( 200 ),
             db.from( 'orders' )
-                .select( selection )
+                .select( selection, { count: 'exact' } )
                 .eq( 'courier_dispatch_queued', true )
+                .eq( 'courier_hidden', false )
                 .order( 'created_at', { ascending: false } )
                 .limit( 200 ),
         ] );
@@ -120,7 +122,7 @@ export async function GET ()
         )
         {
             return NextResponse.json( {
-                error: 'Courier fields are not installed in Supabase. Apply migrations 0013_courier_tracking.sql and 0014_courier_dispatch_queue.sql after 0011 and 0012.',
+                error: 'Courier fields are not installed in Supabase. Apply migrations 0013_courier_tracking.sql, 0014_courier_dispatch_queue.sql, and 0015_courier_list_archive.sql after 0011 and 0012.',
             }, { status: 503 } );
         }
         return NextResponse.json( { error: 'Could not load courier dashboard.' }, { status: 500 } );

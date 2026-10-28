@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
+import RefreshOnInterval from '@/components/RefreshOnInterval';
 
 type OrderItemSnapshot = {
     name?: string;
@@ -32,6 +33,7 @@ export default async function Orders ()
 
     return (
         <main className="shell py-12">
+            <RefreshOnInterval />
             <p className="eyebrow">My account</p>
             <h1 className="display mt-2 text-5xl">My orders</h1>
             { !orders?.length ? (

@@ -28,6 +28,19 @@ type Order = {
     invoiceNumber?: string;
 };
 
+type OrderSummary = {
+    totalOrders: number;
+    pendingOrders: number;
+    processingOrders: number;
+    packedOrders: number;
+    shippedOrders: number;
+    deliveredOrders: number;
+    cancelledOrders: number;
+    refundedOrders: number;
+    paidPayments: number;
+    codPendingPayments: number;
+};
+
 const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 } ).format( n );
 const blockedCourierStatuses = new Set( [ 'cancelled', 'shipped', 'out_for_delivery', 'delivered', 'returned', 'refunded' ] );
 
@@ -86,6 +99,7 @@ export default function AdminOrders ()
 {
     const [ orders, setOrders ] = useState<Order[]>( [] );
     const [ loading, setLoading ] = useState( true );
+    const [ loadError, setLoadError ] = useState( '' );
     const [ expandedId, setExpandedId ] = useState<string | null>( null );
     const [ updatingOrderIds, setUpdatingOrderIds ] = useState<Set<string>>( new Set() );
 
@@ -100,11 +114,12 @@ export default function AdminOrders ()
     const [ page, setPage ] = useState( 1 );
     const [ totalPages, setTotalPages ] = useState( 1 );
     const [ totalItems, setTotalItems ] = useState( 0 );
-    const [ summary, setSummary ] = useState<any>( null );
+    const [ summary, setSummary ] = useState<OrderSummary | null>( null );
 
     const fetchOrders = useCallback( async ( showLoading = true ) =>
     {
         if ( showLoading ) setLoading( true );
+        setLoadError( '' );
         try
         {
             let qs = `?page=${ page }&limit=20`;
@@ -138,6 +153,7 @@ export default function AdminOrders ()
 
             const res = await fetch( `/api/admin/orders${ qs }` );
             const json = await res.json();
+            if ( !res.ok ) throw new Error( json.error || 'Could not load orders.' );
 
             if ( json.data )
             {
@@ -149,6 +165,7 @@ export default function AdminOrders ()
         } catch ( e )
         {
             console.error( e );
+            setLoadError( e instanceof Error ? e.message : 'Could not load orders.' );
         } finally
         {
             if ( showLoading ) setLoading( false );
@@ -162,6 +179,21 @@ export default function AdminOrders ()
             fetchOrders();
         }, 400 );
         return () => clearTimeout( delayBounceFn );
+    }, [ fetchOrders ] );
+
+    useEffect( () =>
+    {
+        const refreshWhenVisible = () =>
+        {
+            if ( document.visibilityState === 'visible' ) void fetchOrders( false );
+        };
+        const interval = window.setInterval( refreshWhenVisible, 15000 );
+        document.addEventListener( 'visibilitychange', refreshWhenVisible );
+        return () =>
+        {
+            window.clearInterval( interval );
+            document.removeEventListener( 'visibilitychange', refreshWhenVisible );
+        };
     }, [ fetchOrders ] );
 
     // Reset page to 1 when filters change (but not when page changes)
@@ -346,7 +378,7 @@ export default function AdminOrders ()
             <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-stone pb-6 mb-6 gap-4">
                 <div>
                     <h1 className="display text-4xl text-navy">Order Management</h1>
-                    <p className="text-sm text-zinc-500 mt-2">Review full order details. Confirm dispatch-ready orders to add them to Courier &amp; Billing; this does not contact the carrier yet.</p>
+                    <p className="text-sm text-zinc-500 mt-2">Search and review customer, product, payment, return, and delivery information. Confirm eligible orders to add them to the courier queue.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                     <Link href="/admin/courier" className="text-xs font-semibold text-navy underline">
@@ -364,6 +396,8 @@ export default function AdminOrders ()
                     </button>
                 </div>
             </div>
+
+            { loadError && <p className="mb-5 border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800" role="alert">{ loadError }</p> }
 
             {/* Filters Section */ }
             <div className="bg-stone-50 p-4 border border-stone rounded flex flex-wrap items-center gap-4 mb-6 text-sm">
@@ -401,16 +435,13 @@ export default function AdminOrders ()
                         className="p-2 border border-stone rounded bg-white outline-none focus:border-navy"
                     >
                         <option value="all">All Orders</option>
-                        <option value="new">New / Just Ordered</option>
-                        <option value="pending">Pending</option>
-                        <option value="confirmed">Confirmed</option>
+                        <option value="pending_payment">Payment pending</option>
+                        <option value="paid">Payment confirmed</option>
                         <option value="processing">Processing</option>
                         <option value="packed">Packed</option>
                         <option value="shipped">Shipped</option>
-                        <option value="out_for_delivery">Out for Delivery</option>
-                        <option value="delivered">Delivered / Successful</option>
+                        <option value="delivered">Delivered</option>
                         <option value="cancelled">Cancelled</option>
-                        <option value="returned">Returned</option>
                         <option value="refunded">Refunded</option>
                     </select>
                 </div>
@@ -418,28 +449,43 @@ export default function AdminOrders ()
 
             {/* Configurable Dashboard Summary Cards */ }
             { summary && (
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-8">
+                <>
+                <p className="mb-3 text-xs text-zinc-500">Order and payment counts use the selected date range and search, independent of the status dropdown.</p>
+                <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                     <div className="bg-white p-4 border border-stone rounded shadow-sm text-center">
                         <p className="text-xl font-bold text-navy">{ summary.totalOrders }</p>
-                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Total Orders</p>
-                    </div>
-                    <div className="bg-white p-4 border border-stone rounded shadow-sm text-center">
-                        <p className="text-xl font-bold text-emerald-600">{ money( summary.totalSales ) }</p>
-                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Total Sales</p>
+                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Orders in date/search</p>
                     </div>
                     <div className="bg-white p-4 border border-stone rounded shadow-sm text-center">
                         <p className="text-xl font-bold text-blue-600">{ summary.pendingOrders }</p>
-                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Pending Orders</p>
+                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Pending Payment</p>
                     </div>
                     <div className="bg-white p-4 border border-stone rounded shadow-sm text-center">
-                        <p className="text-xl font-bold text-orange-600">{ summary.processingOrders + summary.shippedOrders }</p>
-                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Processing / Shipped</p>
+                        <p className="text-xl font-bold text-orange-600">{ summary.processingOrders + summary.packedOrders }</p>
+                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Processing / Packed</p>
+                    </div>
+                    <div className="bg-white p-4 border border-stone rounded shadow-sm text-center">
+                        <p className="text-xl font-bold text-sky-700">{ summary.shippedOrders }</p>
+                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Shipped</p>
                     </div>
                     <div className="bg-white p-4 border border-stone rounded shadow-sm text-center">
                         <p className="text-xl font-bold text-green-600">{ summary.deliveredOrders }</p>
                         <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Delivered</p>
                     </div>
+                    <div className="bg-white p-4 border border-stone rounded shadow-sm text-center">
+                        <p className="text-xl font-bold text-emerald-600">{ summary.paidPayments }</p>
+                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Payments Marked Paid</p>
+                    </div>
+                    <div className="bg-white p-4 border border-stone rounded shadow-sm text-center">
+                        <p className="text-xl font-bold text-orange-600">{ summary.codPendingPayments }</p>
+                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">COD Payments Pending</p>
+                    </div>
+                    <div className="bg-white p-4 border border-stone rounded shadow-sm text-center">
+                        <p className="text-xl font-bold text-red-600">{ summary.cancelledOrders + summary.refundedOrders }</p>
+                        <p className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Cancelled / Refunded</p>
+                    </div>
                 </div>
+                </>
             ) }
 
 

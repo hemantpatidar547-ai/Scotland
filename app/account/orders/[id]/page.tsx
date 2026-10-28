@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { CancelOrderButton } from '@/components/customer/CancelOrderButton';
 import { ReturnOrderForm } from '@/components/customer/ReturnOrderForm';
+import RefreshOnInterval from '@/components/RefreshOnInterval';
 
 type OrderItemSnapshot = {
     productId?: string;
@@ -49,6 +50,7 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
 
     return (
         <main className="shell py-12">
+            <RefreshOnInterval />
             <Link href="/account/orders" className="text-sm underline">← Back to my orders</Link>
             <p className="eyebrow mt-8">Order { order.order_number }</p>
             <h1 className="display mt-2 text-5xl">Order details</h1>

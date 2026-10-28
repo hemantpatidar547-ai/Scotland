@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 type CourierOrder = {
     id: string;
@@ -78,9 +78,9 @@ export default function CourierDashboard ()
     const [ search, setSearch ] = useState( '' );
     const [ updatingQueueIds, setUpdatingQueueIds ] = useState<Set<string>>( new Set() );
 
-    async function loadDashboard ()
+    const loadDashboard = useCallback( async ( showLoading = true ) =>
     {
-        setLoading( true );
+        if ( showLoading ) setLoading( true );
         setError( '' );
         try
         {
@@ -93,36 +93,49 @@ export default function CourierDashboard ()
             setError( cause instanceof Error ? cause.message : 'Could not load courier data.' );
         } finally
         {
-            setLoading( false );
+            if ( showLoading ) setLoading( false );
         }
-    }
+    }, [] );
 
-    useEffect( () => { void loadDashboard(); }, [] );
+    useEffect( () =>
+    {
+        void loadDashboard();
+        const refreshWhenVisible = () =>
+        {
+            if ( document.visibilityState === 'visible' ) void loadDashboard( false );
+        };
+        const interval = window.setInterval( refreshWhenVisible, 15000 );
+        document.addEventListener( 'visibilitychange', refreshWhenVisible );
+        return () =>
+        {
+            window.clearInterval( interval );
+            document.removeEventListener( 'visibilitychange', refreshWhenVisible );
+        };
+    }, [ loadDashboard ] );
 
     const summary = dashboard?.summary;
-    async function removeFromCourierQueue ( orderId: string )
+    async function deleteFromCourierList ( order: CourierOrder )
     {
+        if ( !window.confirm( `Remove ${ order.orderNumber } from the courier dashboard? Its customer, address, and product details will no longer appear in this courier section. The order and its history will remain in Order Management and the customer's account.` ) ) return;
         setError( '' );
-        setUpdatingQueueIds( current => new Set( current ).add( orderId ) );
+        setUpdatingQueueIds( current => new Set( current ).add( order.id ) );
         try
         {
-            const response = await fetch( `/api/admin/orders/${ encodeURIComponent( orderId ) }/courier-queue`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify( { queued: false } ),
+            const response = await fetch( `/api/admin/orders/${ encodeURIComponent( order.id ) }/courier-queue`, {
+                method: 'DELETE',
             } );
             const result = await response.json();
-            if ( !response.ok ) throw new Error( result.error || 'Could not remove the order from the courier queue.' );
+            if ( !response.ok ) throw new Error( result.error || 'Could not remove the order from the courier dashboard.' );
             await loadDashboard();
         } catch ( cause )
         {
-            setError( cause instanceof Error ? cause.message : 'Could not remove the order from the courier queue.' );
+            setError( cause instanceof Error ? cause.message : 'Could not remove the order from the courier dashboard.' );
         } finally
         {
             setUpdatingQueueIds( current =>
             {
                 const next = new Set( current );
-                next.delete( orderId );
+                next.delete( order.id );
                 return next;
             } );
         }
@@ -222,12 +235,13 @@ export default function CourierDashboard ()
                                 </ul>
                                 <button
                                     type="button"
-                                    onClick={ () => void removeFromCourierQueue( order.id ) }
+                                    onClick={ () => void deleteFromCourierList( order ) }
                                     disabled={ updatingQueueIds.has( order.id ) || Boolean( order.trackingNumber ) }
-                                    className="mt-3 text-xs font-semibold text-zinc-600 underline disabled:opacity-50"
+                                    className="mt-3 text-xs font-semibold text-rose-700 underline disabled:opacity-50"
                                 >
-                                    { updatingQueueIds.has( order.id ) ? 'Updating…' : 'Remove from queue' }
+                                    { updatingQueueIds.has( order.id ) ? 'Removing…' : 'Delete from courier list' }
                                 </button>
+                                { !order.trackingNumber && <p className="mt-1 text-[11px] text-zinc-500">Removes customer/product details from Courier &amp; Billing only. Order history and billing records stay unchanged.</p> }
                             </div>
                         </article> ) }
                     </div>

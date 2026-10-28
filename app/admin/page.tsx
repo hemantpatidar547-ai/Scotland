@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import Link from 'next/link';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { DeliveryChargeToggle } from '@/components/CodChargeToggle';
+import RefreshOnInterval from '@/components/RefreshOnInterval';
 
 type DashboardOrder = {
     id: string;
@@ -95,6 +96,7 @@ export default async function Admin ()
 
     return (
         <main className="shell py-8 sm:py-10">
+            <RefreshOnInterval />
             <div className="flex flex-col items-start justify-between gap-5 border-b border-stone pb-6 sm:flex-row sm:items-end">
                 <div>
                     <p className="eyebrow text-zinc-500">Store operations</p>

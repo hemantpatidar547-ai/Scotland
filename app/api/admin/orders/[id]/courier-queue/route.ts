@@ -11,8 +11,19 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
         if ( !await isAdminRequest() )
             return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
 
+        const origin = req.headers.get( 'origin' );
+        if ( origin && origin !== req.nextUrl.origin )
+            return NextResponse.json( { error: 'Invalid request origin.' }, { status: 403 } );
+
         const { id } = await params;
-        const body: unknown = await req.json();
+        let body: unknown;
+        try
+        {
+            body = await req.json();
+        } catch
+        {
+            return NextResponse.json( { error: 'Request body must be valid JSON.' }, { status: 400 } );
+        }
         if ( !body || typeof body !== 'object' || !('queued' in body) || typeof body.queued !== 'boolean' )
             return NextResponse.json( { error: 'A boolean queued value is required.' }, { status: 400 } );
 
@@ -68,6 +79,66 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
                 error: 'Courier queue is not installed yet. Apply supabase/migrations/0014_courier_dispatch_queue.sql in the Supabase SQL Editor.',
             }, { status: 503 } );
         }
+
         return NextResponse.json( { error: 'Could not update the courier queue.' }, { status: 500 } );
+    }
+}
+
+export async function DELETE ( _req: NextRequest, { params }: { params: Promise<{ id: string }> } )
+{
+    try
+    {
+        if ( !await isAdminRequest() )
+            return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+
+        const origin = _req.headers.get( 'origin' );
+        if ( origin && origin !== _req.nextUrl.origin )
+            return NextResponse.json( { error: 'Invalid request origin.' }, { status: 403 } );
+
+        const { id } = await params;
+        const db = getSupabaseAdmin();
+        const { data: order, error: readError } = await db.from( 'orders' )
+            .select( 'id, tracking_number, courier_hidden' )
+            .eq( 'id', id )
+            .maybeSingle();
+
+        if ( readError ) throw readError;
+        if ( !order ) return NextResponse.json( { error: 'Order not found.' }, { status: 404 } );
+        if ( order.courier_hidden )
+            return NextResponse.json( { success: true, hidden: true } );
+        if ( order.tracking_number )
+            return NextResponse.json( { error: 'An order with an active courier tracking number cannot be hidden from the courier dashboard.' }, { status: 409 } );
+
+        const { data: updatedOrder, error: updateError } = await db.from( 'orders' )
+            .update( {
+                courier_hidden: true,
+                courier_dispatch_queued: false,
+                updated_at: new Date().toISOString(),
+            } )
+            .eq( 'id', id )
+            .eq( 'courier_hidden', false )
+            .is( 'tracking_number', null )
+            .select( 'id' )
+            .maybeSingle();
+
+        if ( updateError ) throw updateError;
+        if ( !updatedOrder )
+            return NextResponse.json( { error: 'Order changed while it was being removed. Refresh and try again.' }, { status: 409 } );
+
+        return NextResponse.json( { success: true, hidden: true, historyPreserved: true } );
+    } catch ( error )
+    {
+        console.error( 'Admin courier list archive error:', error );
+        if (
+            error && typeof error === 'object' &&
+            'code' in error &&
+            ( error.code === '42703' || error.code === 'PGRST204' || error.code === 'PGRST200' )
+        )
+        {
+            return NextResponse.json( {
+                error: 'Courier list archive is not installed yet. Apply supabase/migrations/0015_courier_list_archive.sql in the Supabase SQL Editor.',
+            }, { status: 503 } );
+        }
+        return NextResponse.json( { error: 'Could not remove the order from the courier dashboard.' }, { status: 500 } );
     }
 }

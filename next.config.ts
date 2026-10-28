@@ -19,6 +19,7 @@ const supabaseImagePattern = ( () =>
 } )();
 
 const nextConfig: NextConfig = {
+  deploymentId: process.env.NEXT_DEPLOYMENT_ID || process.env.VERCEL_DEPLOYMENT_ID || process.env.VERCEL_GIT_COMMIT_SHA,
   distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
   experimental: { devtoolSegmentExplorer: false },
   images: {

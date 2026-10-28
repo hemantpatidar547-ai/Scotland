@@ -12,9 +12,9 @@ export async function GET ()
         const db = getSupabaseAdmin();
 
         const [ { data: orders }, { data: products }, { count: totalCustomers } ] = await Promise.all( [
-            db.from( 'orders' ).select( '*' ),
+            db.from( 'orders' ).select( '*' ).is( 'admin_archived_at', null ),
             db.from( 'products' ).select( '*' ),
-            db.from( 'orders' ).select( 'user_id', { count: 'exact', head: true } ),
+            db.from( 'profiles' ).select( 'id', { count: 'exact', head: true } ).eq( 'role', 'customer' ),
         ] );
 
         const allOrders = orders || [];

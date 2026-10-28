@@ -12,16 +12,18 @@ export async function GET ()
         const since = new Date();
         since.setDate( since.getDate() - 30 );
         const db = getSupabaseAdmin();
-        const selection = 'id, order_number, created_at, order_status, payment_status, payment_method, final_amount, total_amount, shipping_cost, courier_name, tracking_number, courier_status, courier_status_updated_at, courier_shipping_charge, courier_dispatch_queued, shipping_address, user_email, email, items, return_status, return_refund_amount';
+        const selection = 'id, order_number, created_at, order_status, payment_status, payment_method, final_amount, total_amount, shipping_cost, courier_name, tracking_number, courier_status, courier_status_updated_at, courier_shipping_charge, courier_dispatch_queued, courier_api_submission_state, courier_api_submission_error, courier_package_weight_g, shipping_address, user_email, email, items, return_status, return_refund_amount';
         const [ { data, error }, { data: queuedData, error: queuedError, count: queuedCount } ] = await Promise.all( [
             db.from( 'orders' )
                 .select( selection )
+                .is( 'admin_archived_at', null )
                 .gte( 'created_at', since.toISOString() )
                 .eq( 'courier_hidden', false )
                 .order( 'created_at', { ascending: false } )
                 .limit( 200 ),
             db.from( 'orders' )
                 .select( selection, { count: 'exact' } )
+                .is( 'admin_archived_at', null )
                 .eq( 'courier_dispatch_queued', true )
                 .eq( 'courier_hidden', false )
                 .order( 'created_at', { ascending: false } )
@@ -46,6 +48,9 @@ export async function GET ()
             courierStatusUpdatedAt: order.courier_status_updated_at,
             courierShippingCharge: order.courier_shipping_charge === null ? null : Number( order.courier_shipping_charge ),
             courierDispatchQueued: Boolean( order.courier_dispatch_queued ),
+            courierApiSubmissionState: order.courier_api_submission_state,
+            courierApiSubmissionError: order.courier_api_submission_error,
+            courierPackageWeightG: order.courier_package_weight_g === null ? null : Number( order.courier_package_weight_g ),
             customerName: order.shipping_address?.name || 'Customer',
             customerPhone: order.shipping_address?.phone || '',
             customerEmail: order.user_email || order.email || '',
@@ -91,7 +96,7 @@ export async function GET ()
                 trackedShipments: orders.filter( order => Boolean( order.trackingNumber ) ).length,
                 inTransit: orders.filter( order =>
                     Boolean( order.trackingNumber ) &&
-                    /transit|picked.?up|manifest|out.for.delivery/i.test( order.courierStatus || '' )
+                    /transit|picked.?up|out.for.delivery/i.test( order.courierStatus || '' )
                 ).length,
                 delivered: orders.filter( order =>
                     Boolean( order.trackingNumber ) && /delivered/i.test( order.courierStatus || '' )
@@ -122,7 +127,7 @@ export async function GET ()
         )
         {
             return NextResponse.json( {
-                error: 'Courier fields are not installed in Supabase. Apply migrations 0013_courier_tracking.sql, 0014_courier_dispatch_queue.sql, and 0015_courier_list_archive.sql after 0011 and 0012.',
+                error: 'Courier or admin archive fields are not installed in Supabase. Apply migrations 0013_courier_tracking.sql through 0017_delhivery_sandbox_submission.sql after 0011 and 0012.',
             }, { status: 503 } );
         }
         return NextResponse.json( { error: 'Could not load courier dashboard.' }, { status: 500 } );

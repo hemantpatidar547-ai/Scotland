@@ -35,7 +35,10 @@ export async function GET ( req: NextRequest )
         const db = getSupabaseAdmin();
 
         // Base query for paginated results
-        let query = db.from( 'orders' ).select( '*', { count: 'exact' } ).order( 'created_at', { ascending: false } );
+        let query = db.from( 'orders' )
+            .select( '*', { count: 'exact' } )
+            .is( 'admin_archived_at', null )
+            .order( 'created_at', { ascending: false } );
 
         if ( status && status !== 'all' )
         {
@@ -93,6 +96,7 @@ export async function GET ( req: NextRequest )
         const getFilteredCount = async ( orderStatus?: string, paymentStatus?: string, paymentMethod?: string ) =>
         {
             let countQuery = db.from( 'orders' ).select( 'id', { count: 'exact', head: true } );
+            countQuery = countQuery.is( 'admin_archived_at', null );
             if ( search )
             {
                 const orString = 'order_number.ilike.%' + search + '%,user_email.ilike.%' + search + '%,shipping_address->>name.ilike.%' + search + '%,shipping_address->>phone.ilike.%' + search + '%';
@@ -143,6 +147,16 @@ export async function GET ( req: NextRequest )
     } catch ( err )
     {
         console.error( 'Admin orders GET error:', err );
+        if (
+            err && typeof err === 'object' &&
+            'code' in err &&
+            ( err.code === '42703' || err.code === 'PGRST204' || err.code === 'PGRST200' )
+        )
+        {
+            return NextResponse.json( {
+                error: 'Admin order archive is not installed yet. Apply supabase/migrations/0016_archive_existing_admin_orders.sql in the Supabase SQL Editor.',
+            }, { status: 503 } );
+        }
         return NextResponse.json( { error: 'Failed to fetch orders' }, { status: 500 } );
     }
 }

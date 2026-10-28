@@ -45,6 +45,7 @@ async function getDashboardStats ()
             : dayStarts[ index + 1 ];
         const { count, error } = await db.from( 'orders' )
             .select( 'id', { count: 'exact', head: true } )
+            .is( 'admin_archived_at', null )
             .gte( 'created_at', start.toISOString() )
             .lt( 'created_at', end.toISOString() );
         if ( error ) throw error;
@@ -56,9 +57,10 @@ async function getDashboardStats ()
     } ) );
 
     const [ { count: totalOrders, error: totalError }, { data: recentOrders, error: recentError } ] = await Promise.all( [
-        db.from( 'orders' ).select( 'id', { count: 'exact', head: true } ),
+        db.from( 'orders' ).select( 'id', { count: 'exact', head: true } ).is( 'admin_archived_at', null ),
         db.from( 'orders' )
             .select( 'id, order_number, final_amount, order_status, payment_status, payment_method, created_at, shipping_address, user_email, email' )
+            .is( 'admin_archived_at', null )
             .order( 'created_at', { ascending: false } )
             .limit( 6 ),
     ] );

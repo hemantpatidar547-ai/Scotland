@@ -50,6 +50,7 @@ export async function GET ( request: NextRequest )
             customerIds.length
                 ? db.from( 'orders' )
                     .select( 'id, user_id, user_email, shipping_address, order_number, created_at, order_status, payment_status, final_amount, total_amount' )
+                    .is( 'admin_archived_at', null )
                     .in( 'user_id', customerIds )
                     .order( 'created_at', { ascending: false } )
                 : Promise.resolve( { data: [], error: null } ),
@@ -114,6 +115,16 @@ export async function GET ( request: NextRequest )
     } catch ( error )
     {
         console.error( 'Admin customers query failed:', error );
+        if (
+            error && typeof error === 'object' &&
+            'code' in error &&
+            ( error.code === '42703' || error.code === 'PGRST204' || error.code === 'PGRST200' )
+        )
+        {
+            return NextResponse.json( {
+                error: 'Admin order archive is not installed yet. Apply supabase/migrations/0016_archive_existing_admin_orders.sql in the Supabase SQL Editor.',
+            }, { status: 503 } );
+        }
         return NextResponse.json( { error: 'Could not load customer management data.' }, { status: 500 } );
     }
 }

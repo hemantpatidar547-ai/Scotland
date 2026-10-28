@@ -3,16 +3,18 @@ import 'server-only';
 export type DelhiveryConfig = {
     apiToken: string;
     apiBaseUrl: string;
+    pickupLocation: string;
 };
 
 export function getDelhiveryConfig (): DelhiveryConfig
 {
     const apiToken = process.env.DELHIVERY_API_TOKEN?.trim();
     const apiBaseUrl = process.env.DELHIVERY_API_BASE_URL?.trim();
+    const pickupLocation = process.env.DELHIVERY_PICKUP_LOCATION?.trim();
 
-    if ( !apiToken || !apiBaseUrl )
+    if ( !apiToken || !apiBaseUrl || !pickupLocation )
     {
-        throw new Error( 'Delhivery is not configured. Set DELHIVERY_API_TOKEN and DELHIVERY_API_BASE_URL on the server.' );
+        throw new Error( 'Delhivery sandbox is not configured. Set DELHIVERY_API_TOKEN, DELHIVERY_API_BASE_URL, and DELHIVERY_PICKUP_LOCATION on the server.' );
     }
 
     let parsedBaseUrl: URL;
@@ -40,5 +42,6 @@ export function getDelhiveryConfig (): DelhiveryConfig
     return {
         apiToken,
         apiBaseUrl: parsedBaseUrl.toString().replace( /\/+$/, '' ),
+        pickupLocation,
     };
 }

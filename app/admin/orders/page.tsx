@@ -378,7 +378,7 @@ export default function AdminOrders ()
             <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-stone pb-6 mb-6 gap-4">
                 <div>
                     <h1 className="display text-4xl text-navy">Order Management</h1>
-                    <p className="text-sm text-zinc-500 mt-2">Search and review customer, product, payment, return, and delivery information. Confirm eligible orders to add them to the courier queue.</p>
+                    <p className="text-sm text-zinc-500 mt-2">Search and review customer, product, payment, return, and delivery information. Approve eligible orders here, then submit them to the Delhivery sandbox from Courier &amp; Billing.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                     <Link href="/admin/courier" className="text-xs font-semibold text-navy underline">
@@ -588,7 +588,7 @@ export default function AdminOrders ()
                                                     disabled={ updatingOrderIds.has( order._id ) }
                                                     className="button-outline text-xs disabled:opacity-50"
                                                 >
-                                                    { updatingOrderIds.has( order._id ) ? 'Updating…' : 'Confirm & queue for courier' }
+                                                    { updatingOrderIds.has( order._id ) ? 'Updating…' : 'Approve & add to courier queue' }
                                                 </button> }
                                                 { !order.courierDispatchQueued && !blockedCourierStatuses.has( order.orderStatus.toLowerCase() ) && ( order.paymentStatus || '' ).toLowerCase() !== 'paid' && ( order.paymentMethod || '' ).toLowerCase() !== 'cod' && <span className="max-w-52 text-right text-[10px] leading-4 text-amber-700">Online payment must be completed before courier confirmation.</span> }
                                                 { order.courierDispatchQueued && !order.trackingNumber && <button

@@ -30,14 +30,17 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
         const queued = body.queued;
         const db = getSupabaseAdmin();
         const { data: order, error: readError } = await db.from( 'orders' )
-            .select( 'id, order_status, payment_status, payment_method, tracking_number, courier_dispatch_queued' )
+            .select( 'id, order_status, payment_status, payment_method, tracking_number, courier_dispatch_queued, courier_api_submission_state' )
             .eq( 'id', id )
+            .is( 'admin_archived_at', null )
             .maybeSingle();
 
         if ( readError ) throw readError;
         if ( !order ) return NextResponse.json( { error: 'Order not found.' }, { status: 404 } );
         if ( order.courier_dispatch_queued === queued )
             return NextResponse.json( { success: true, queued } );
+        if ( !queued && order.courier_api_submission_state !== 'pending' )
+            return NextResponse.json( { error: 'A submitted or uncertain shipment cannot be removed from the courier queue.' }, { status: 409 } );
         if ( queued && FINAL_ORDER_STATUSES.has( String( order.order_status ).toLowerCase() ) )
             return NextResponse.json( { error: 'Cancelled, refunded, returned, delivered, or already dispatched orders cannot be queued for dispatch.' }, { status: 409 } );
         if (
@@ -54,6 +57,7 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
         let updateQuery = db.from( 'orders' )
             .update( { courier_dispatch_queued: queued, updated_at: new Date().toISOString() } )
             .eq( 'id', id )
+            .is( 'admin_archived_at', null )
             .eq( 'order_status', order.order_status )
             .eq( 'courier_dispatch_queued', order.courier_dispatch_queued );
         updateQuery = order.tracking_number === null
@@ -76,7 +80,7 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
         )
         {
             return NextResponse.json( {
-                error: 'Courier queue is not installed yet. Apply supabase/migrations/0014_courier_dispatch_queue.sql in the Supabase SQL Editor.',
+                error: 'Courier queue, archive, or submission fields are not installed yet. Apply migrations 0014 through 0017 in the Supabase SQL Editor.',
             }, { status: 503 } );
         }
 
@@ -98,14 +102,17 @@ export async function DELETE ( _req: NextRequest, { params }: { params: Promise<
         const { id } = await params;
         const db = getSupabaseAdmin();
         const { data: order, error: readError } = await db.from( 'orders' )
-            .select( 'id, tracking_number, courier_hidden' )
+            .select( 'id, tracking_number, courier_hidden, courier_api_submission_state' )
             .eq( 'id', id )
+            .is( 'admin_archived_at', null )
             .maybeSingle();
 
         if ( readError ) throw readError;
         if ( !order ) return NextResponse.json( { error: 'Order not found.' }, { status: 404 } );
         if ( order.courier_hidden )
             return NextResponse.json( { success: true, hidden: true } );
+        if ( order.courier_api_submission_state !== 'pending' )
+            return NextResponse.json( { error: 'A submitted or uncertain shipment cannot be removed from the courier dashboard.' }, { status: 409 } );
         if ( order.tracking_number )
             return NextResponse.json( { error: 'An order with an active courier tracking number cannot be hidden from the courier dashboard.' }, { status: 409 } );
 
@@ -116,6 +123,7 @@ export async function DELETE ( _req: NextRequest, { params }: { params: Promise<
                 updated_at: new Date().toISOString(),
             } )
             .eq( 'id', id )
+            .is( 'admin_archived_at', null )
             .eq( 'courier_hidden', false )
             .is( 'tracking_number', null )
             .select( 'id' )
@@ -136,7 +144,7 @@ export async function DELETE ( _req: NextRequest, { params }: { params: Promise<
         )
         {
             return NextResponse.json( {
-                error: 'Courier list archive is not installed yet. Apply supabase/migrations/0015_courier_list_archive.sql in the Supabase SQL Editor.',
+                error: 'Courier archive or submission fields are not installed yet. Apply migrations 0015 through 0017 in the Supabase SQL Editor.',
             }, { status: 503 } );
         }
         return NextResponse.json( { error: 'Could not remove the order from the courier dashboard.' }, { status: 500 } );

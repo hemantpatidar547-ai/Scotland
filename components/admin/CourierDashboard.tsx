@@ -17,6 +17,9 @@ type CourierOrder = {
     courierStatusUpdatedAt: string | null;
     courierShippingCharge: number | null;
     courierDispatchQueued: boolean;
+    courierApiSubmissionState: 'pending' | 'submitting' | 'submitted' | 'needs_review';
+    courierApiSubmissionError: string | null;
+    courierPackageWeightG: number | null;
     customerName: string;
     customerPhone: string;
     customerEmail: string;
@@ -77,6 +80,7 @@ export default function CourierDashboard ()
     const [ error, setError ] = useState( '' );
     const [ search, setSearch ] = useState( '' );
     const [ updatingQueueIds, setUpdatingQueueIds ] = useState<Set<string>>( new Set() );
+    const [ packageWeights, setPackageWeights ] = useState<Record<string, string>>( {} );
 
     const loadDashboard = useCallback( async ( showLoading = true ) =>
     {
@@ -141,13 +145,51 @@ export default function CourierDashboard ()
         }
     }
 
+    async function submitToDelhiverySandbox ( order: CourierOrder )
+    {
+        const weightGrams = Number( packageWeights[ order.id ] || order.courierPackageWeightG || 0 );
+        if ( !Number.isSafeInteger( weightGrams ) || weightGrams < 1 || weightGrams > 100000 )
+        {
+            setError( 'Enter the packed parcel weight in grams before submitting.' );
+            return;
+        }
+        if ( !window.confirm( `Send ${ order.orderNumber } and its customer delivery details to the Delhivery SANDBOX for testing? This is not a live shipment booking.` ) ) return;
+
+        setError( '' );
+        setUpdatingQueueIds( current => new Set( current ).add( order.id ) );
+        try
+        {
+            const response = await fetch( `/api/admin/orders/${ encodeURIComponent( order.id ) }/delhivery-sandbox`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify( { weightGrams } ),
+            } );
+            const result = await response.json();
+            if ( !response.ok ) throw new Error( result.error || 'Could not submit to Delhivery sandbox.' );
+            setPackageWeights( current => ( { ...current, [ order.id ]: '' } ) );
+            await loadDashboard();
+        } catch ( cause )
+        {
+            setError( cause instanceof Error ? cause.message : 'Could not submit to Delhivery sandbox.' );
+            await loadDashboard( false );
+        } finally
+        {
+            setUpdatingQueueIds( current =>
+            {
+                const next = new Set( current );
+                next.delete( order.id );
+                return next;
+            } );
+        }
+    }
+
     const visibleOrders = ( dashboard?.data || [] ).filter( order =>
         `${ order.orderNumber } ${ order.customerName } ${ order.customerPhone } ${ order.trackingNumber || '' }`
             .toLowerCase()
             .includes( search.toLowerCase() )
     );
     const cards = summary ? [
-        { label: 'Confirmed for courier · API pending', value: summary.awaitingCourierSubmission, tone: 'text-amber-700' },
+        { label: 'Admin-approved queue · pending/review', value: summary.awaitingCourierSubmission, tone: 'text-amber-700' },
         { label: 'Orders without AWB', value: summary.ordersWithoutAwb, tone: 'text-amber-700' },
         { label: 'AWBs / tracking saved', value: summary.trackedShipments, tone: 'text-sky-700' },
         { label: 'Courier status: in transit', value: summary.inTransit, tone: 'text-blue-700' },
@@ -173,8 +215,8 @@ export default function CourierDashboard ()
         </div>
 
         <section className="mt-6 border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-            <p className="font-semibold">Delhivery API actions are not connected yet</p>
-            <p className="mt-1 leading-6">Shipment creation, labels, and automatic carrier scans are not connected, so this dashboard does not submit parcels. Courier counters below use only saved AWBs and courier statuses; they are not newly dispatched parcels. Order delivery status and customer return requests are shown separately and do not prove courier handover. We have removed manual courier-status editing so delivery progress cannot be entered as if it came from Delhivery.</p>
+            <p className="font-semibold">Sandbox shipment testing only</p>
+            <p className="mt-1 leading-6">A confirmed order can be sent to the Delhivery sandbox below after entering its packed weight. This is not a live booking. Production shipment creation, labels, automatic carrier scans, and live GPS are not enabled. Manifested means Delhivery accepted the test request; it does not mean the parcel was picked up or delivered.</p>
         </section>
 
         { error && <p className="mt-5 border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800" role="alert">{ error }</p> }
@@ -194,7 +236,7 @@ export default function CourierDashboard ()
                 <div className="flex flex-col gap-3 border-b border-stone pb-4 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                         <h2 className="display text-2xl text-navy">Confirmed for courier</h2>
-                        <p className="mt-1 text-sm text-zinc-600">These orders were confirmed by admin and queued here. They have not been sent to Delhivery yet.</p>
+                        <p className="mt-1 text-sm text-zinc-600">Admin-approved orders appear here first. The sandbox action sends the address and parcel data to Delhivery's test environment, not to production.</p>
                     </div>
                     <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900">
                         { dashboard.queuedOrders.length } waiting for API
@@ -219,7 +261,7 @@ export default function CourierDashboard ()
                                 <div className="text-left sm:text-right">
                                     <p className="font-semibold text-navy">{ money( order.amount ) }</p>
                                     <p className="mt-1 text-xs capitalize text-zinc-600">{ order.paymentMethod || 'Payment' } · { order.paymentStatus }</p>
-                                    <p className="mt-2 text-xs font-semibold text-amber-800">Confirmed internally · carrier submission pending</p>
+                                    <p className="mt-2 text-xs font-semibold text-amber-800">Admin-approved · { order.courierApiSubmissionState.replaceAll( '_', ' ' ) }</p>
                                 </div>
                             </div>
                             <div className="mt-4 border-t border-stone pt-3">
@@ -233,10 +275,38 @@ export default function CourierDashboard ()
                                         { item.sku && <span className="text-xs text-zinc-500"> · SKU { item.sku }</span> }
                                     </li> ) }
                                 </ul>
+                                { order.courierApiSubmissionState === 'pending' && <div className="mt-4 flex flex-col gap-2 border-t border-stone pt-3 sm:flex-row sm:items-end">
+                                    <label className="text-xs font-semibold text-zinc-700">
+                                        Packed parcel weight (grams)
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="100000"
+                                            step="1"
+                                            required
+                                            value={ packageWeights[ order.id ] ?? order.courierPackageWeightG ?? '' }
+                                            onChange={ event => setPackageWeights( current => ( { ...current, [ order.id ]: event.target.value } ) ) }
+                                            className="mt-1 block w-full border border-stone bg-white px-3 py-2 text-sm sm:w-56"
+                                            placeholder="Weigh the packed parcel"
+                                        />
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={ () => void submitToDelhiverySandbox( order ) }
+                                        disabled={ updatingQueueIds.has( order.id ) || !packageWeights[ order.id ] && !order.courierPackageWeightG }
+                                        className="button-outline text-sm disabled:opacity-50"
+                                    >
+                                        { updatingQueueIds.has( order.id ) ? 'Submitting…' : 'Send to Delhivery sandbox' }
+                                    </button>
+                                </div> }
+                                { order.courierApiSubmissionState === 'needs_review' && <p className="mt-3 border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800" role="alert">
+                                    Check this submission in the Delhivery sandbox before any retry. { order.courierApiSubmissionError }
+                                </p> }
+                                { order.courierApiSubmissionState === 'submitting' && <p className="mt-3 text-xs text-amber-800">Submission is still being reconciled. Do not retry until its carrier outcome is checked.</p> }
                                 <button
                                     type="button"
                                     onClick={ () => void deleteFromCourierList( order ) }
-                                    disabled={ updatingQueueIds.has( order.id ) || Boolean( order.trackingNumber ) }
+                                    disabled={ updatingQueueIds.has( order.id ) || Boolean( order.trackingNumber ) || order.courierApiSubmissionState !== 'pending' }
                                     className="mt-3 text-xs font-semibold text-rose-700 underline disabled:opacity-50"
                                 >
                                     { updatingQueueIds.has( order.id ) ? 'Removing…' : 'Delete from courier list' }

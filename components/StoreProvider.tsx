@@ -270,6 +270,7 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
             {
                 if ( !accountId )
                 {
+                    if ( syncError ) return false;
                     sendProductToLogin( product, size, color );
                     return false;
                 }

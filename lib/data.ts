@@ -217,6 +217,28 @@ export async function getAllProducts ( fresh = false ): Promise<Product[]>
     return products;
 }
 
+export async function getProductsByIds ( productIds: string[] ): Promise<Product[]>
+{
+    const uniqueIds = Array.from( new Set( productIds ) );
+    if ( !uniqueIds.length ) return [];
+
+    const supabase = getSupabase();
+    if ( !supabase ) throw new Error( 'Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and a Supabase key.' );
+
+    const { data, error } = await supabase
+        .from( 'products' )
+        .select( PRODUCT_SELECT )
+        .in( 'id', uniqueIds );
+
+    if ( error )
+    {
+        console.error( 'Failed to fetch saved cart products from Supabase:', error );
+        throw new Error( 'Could not load products for your saved cart.' );
+    }
+
+    return ( data || [] ).map( formatSupabaseProduct );
+}
+
 /**
  * Returns a single product by slug.
  * Checks in-memory cache first (0ms) → then direct DB query if cache is cold.

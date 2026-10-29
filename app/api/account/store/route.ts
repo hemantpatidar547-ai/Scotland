@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAllProducts } from '@/lib/data';
+import { getProductsByIds } from '@/lib/data';
 import { getAuthenticatedCustomer } from '@/lib/customer-auth';
 
 const storePayload = z.object( {
@@ -38,7 +38,7 @@ async function loadCustomerStore ( userId: string, db: NonNullable<Awaited<Retur
     if ( itemsResult.error ) throw itemsResult.error;
     if ( wishlistResult.error ) throw wishlistResult.error;
 
-    const products = await getAllProducts( true );
+    const products = await getProductsByIds( ( itemsResult.data || [] ).map( item => item.product_id ) );
     const customerCart = ( itemsResult.data || [] ).flatMap( item =>
     {
         const product = products.find( candidate => candidate.id === item.product_id );

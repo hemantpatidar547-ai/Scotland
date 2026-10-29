@@ -23,14 +23,17 @@ function getWaybill ( value: unknown ): string | null
     return null;
 }
 
-function getCarrierMessage ( value: unknown ): string
+async function updateSubmissionAudit ( auditId: string, orderId: string, apiResult: JsonRecord ): Promise<boolean>
 {
-    if ( !isRecord( value ) ) return 'Delhivery did not return a readable response.';
-    const messages = [ value.rmk, value.message, value.error, value.remarks ]
-        .flatMap( item => Array.isArray( item ) ? item : [ item ] )
-        .filter( item => typeof item === 'string' && item.trim() )
-        .map( item => String( item ).trim() );
-    return messages.join( ' · ' ).slice( 0, 500 ) || 'Delhivery did not confirm a waybill.';
+    const { error } = await getSupabaseAdmin().from( 'courier_submission_audit' )
+        .update( { api_result: apiResult } )
+        .eq( 'id', auditId );
+    if ( error )
+    {
+        console.error( 'Could not update courier submission audit result for order:', orderId );
+        return false;
+    }
+    return true;
 }
 
 async function markSubmissionNeedsReview ( orderId: string, message: string )
@@ -52,6 +55,10 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
     {
         if ( !await isAdminRequest() )
             return NextResponse.json( { error: 'Unauthorized' }, { status: 401 } );
+
+        const adminId = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+        if ( !adminId )
+            return NextResponse.json( { error: 'Courier submission auditing is not configured.' }, { status: 503 } );
 
         const origin = req.headers.get( 'origin' );
         if ( origin && origin !== req.nextUrl.origin )
@@ -147,6 +154,32 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
         if ( !reservedOrder )
             return NextResponse.json( { error: 'This shipment changed while you were submitting it. Refresh and check its current status.' }, { status: 409 } );
 
+        const { data: auditEntry, error: auditInsertError } = await db.from( 'courier_submission_audit' )
+            .insert( {
+                admin_id: adminId,
+                order_id: id,
+                action: 'shipment_submission',
+                api_result: { outcome: 'started' },
+            } )
+            .select( 'id' )
+            .single();
+
+        if ( auditInsertError )
+        {
+            const { error: releaseError } = await db.from( 'orders' )
+                .update( {
+                    courier_api_submission_state: 'pending',
+                    courier_api_submission_error: null,
+                    updated_at: new Date().toISOString(),
+                } )
+                .eq( 'id', id )
+                .eq( 'courier_api_submission_state', 'submitting' )
+                .is( 'tracking_number', null );
+            if ( releaseError ) console.error( 'Could not release courier submission reservation:', id );
+            console.error( 'Could not record courier submission audit entry:', id );
+            return NextResponse.json( { error: 'The submission could not be recorded, so it was not sent. Try again later.' }, { status: 503 } );
+        }
+
         const shipment: JsonRecord = {
             name,
             add: streetAddress,
@@ -188,10 +221,11 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
                 signal: AbortSignal.timeout( 20000 ),
             } );
             carrierResult = await carrierResponse.json();
-        } catch ( error )
+        } catch
         {
-            console.error( 'Delhivery sandbox request outcome is unknown:', error );
+            console.error( 'Delhivery sandbox request outcome is unknown for order:', id );
             await markSubmissionNeedsReview( id, 'The request timed out or the response could not be read. Check the Delhivery dashboard before retrying.' );
+            await updateSubmissionAudit( auditEntry.id, id, { outcome: 'unknown' } );
             return NextResponse.json( {
                 error: 'Delhivery response could not be confirmed. Check the sandbox dashboard before retrying to avoid duplicate shipments.',
             }, { status: 502 } );
@@ -200,10 +234,13 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
         const waybill = getWaybill( carrierResult );
         if ( !carrierResponse.ok || !waybill )
         {
-            const carrierMessage = getCarrierMessage( carrierResult );
-            await markSubmissionNeedsReview( id, carrierMessage );
+            await markSubmissionNeedsReview( id, 'Delhivery did not confirm a waybill. Check the sandbox dashboard before retrying.' );
+            await updateSubmissionAudit( auditEntry.id, id, {
+                outcome: 'not_confirmed',
+                httpStatus: carrierResponse.status,
+            } );
             return NextResponse.json( {
-                error: `Delhivery did not confirm a waybill (${ carrierResponse.status }): ${ carrierMessage } Check the sandbox dashboard before attempting another submission.`,
+                error: 'Delhivery did not confirm a shipment. Check the sandbox dashboard before retrying to avoid duplicates.',
             }, { status: 502 } );
         }
 
@@ -228,15 +265,25 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
         if ( saveError ) throw saveError;
         if ( !savedOrder )
         {
+            await updateSubmissionAudit( auditEntry.id, id, {
+                outcome: 'created_order_update_failed',
+                httpStatus: carrierResponse.status,
+                waybill,
+            } );
             return NextResponse.json( {
                 error: `Delhivery created waybill ${ waybill }, but the order record could not be updated. Do not resubmit; contact support to reconcile it.`,
             }, { status: 503 } );
         }
 
-        return NextResponse.json( { success: true, sandbox: true, waybill } );
+        const auditRecorded = await updateSubmissionAudit( auditEntry.id, id, {
+            outcome: 'created',
+            httpStatus: carrierResponse.status,
+            waybill,
+        } );
+        return NextResponse.json( { success: true, sandbox: true, waybill, auditRecorded } );
     } catch ( error )
     {
-        console.error( 'Delhivery sandbox shipment creation failed:', error );
+        console.error( 'Delhivery sandbox shipment processing failed.' );
         if ( error instanceof Error && error.message.startsWith( 'Delhivery sandbox is not configured.' ) )
             return NextResponse.json( { error: error.message }, { status: 503 } );
         if (
@@ -246,7 +293,7 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
         )
         {
             return NextResponse.json( {
-                error: 'Courier submission fields are not installed yet. Apply supabase/migrations/0017_delhivery_sandbox_submission.sql.',
+                error: 'Courier submission or audit fields are not installed yet. Apply migrations 0017 and 0018.',
             }, { status: 503 } );
         }
         return NextResponse.json( { error: 'Could not submit the shipment to Delhivery sandbox.' }, { status: 500 } );

@@ -38,6 +38,7 @@ Apply the Supabase migrations in order before using admin product editing, check
 15. `supabase/migrations/0015_courier_list_archive.sql`
 16. `supabase/migrations/0016_archive_existing_admin_orders.sql`
 17. `supabase/migrations/0017_delhivery_sandbox_submission.sql`
+18. `supabase/migrations/0018_courier_submission_audit.sql`
 
 `0002` adds the product metadata required by the admin form, `0003` enables atomic stock deduction, and `0004` adds saved customer addresses, user-cart uniqueness/synchronization, order snapshots, profile policies, and customer-account indexes. Run each file in the Supabase SQL Editor for the same project used by the app. The migrations are additive and preserve existing profiles and orders.
 
@@ -66,6 +67,8 @@ Apply the Supabase migrations in order before using admin product editing, check
 `0016` archives the orders that already exist when the migration is applied from the admin dashboard, Orders, customer-order summaries, and Courier & Billing. It does not delete order, payment, return, or customer data; customer account order history remains intact. Orders created after the migration are visible to admins normally. Apply only after confirming the target Supabase project.
 
 `0017` adds a guarded Delhivery sandbox submission state and saves the measured packed parcel weight. Apply it after `0016`. In **Admin → Orders**, confirm an eligible order to place it in the courier queue; in **Admin → Courier & Billing**, enter the actual packed weight and explicitly submit it to the sandbox. The endpoint refuses production hosts, prevents duplicate retries when a carrier outcome is uncertain, and only saves a waybill when Delhivery confirms one. This test sends the order's customer/address/product details to Delhivery's staging environment; it does not create a live production booking.
+
+`0018` records each authorized sandbox shipment submission with the configured admin email as the admin identifier, order ID, timestamp, action, and a sanitized API outcome. Apply it after `0017`; if audit logging is unavailable, the shipment request is not sent.
 
 Invoice numbering uses `supabase_invoice_migration.sql`, which must also be applied manually if invoice generation reports that `invoice_number` is missing. Generated invoices should not be treated as tax invoices until actual seller/GST details and tax configuration have been verified.
 

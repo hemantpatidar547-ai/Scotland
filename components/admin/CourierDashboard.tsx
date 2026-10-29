@@ -81,6 +81,8 @@ export default function CourierDashboard ()
     const [ search, setSearch ] = useState( '' );
     const [ updatingQueueIds, setUpdatingQueueIds ] = useState<Set<string>>( new Set() );
     const [ packageWeights, setPackageWeights ] = useState<Record<string, string>>( {} );
+    const [ orderAwaitingConfirmation, setOrderAwaitingConfirmation ] = useState<CourierOrder | null>( null );
+    const [ notice, setNotice ] = useState( '' );
 
     const loadDashboard = useCallback( async ( showLoading = true ) =>
     {
@@ -145,7 +147,7 @@ export default function CourierDashboard ()
         }
     }
 
-    async function submitToDelhiverySandbox ( order: CourierOrder )
+    function requestCourierSubmission ( order: CourierOrder )
     {
         const weightGrams = Number( packageWeights[ order.id ] || order.courierPackageWeightG || 0 );
         if ( !Number.isSafeInteger( weightGrams ) || weightGrams < 1 || weightGrams > 100000 )
@@ -153,9 +155,17 @@ export default function CourierDashboard ()
             setError( 'Enter the packed parcel weight in grams before submitting.' );
             return;
         }
-        if ( !window.confirm( `Send ${ order.orderNumber } and its customer delivery details to the Delhivery SANDBOX for testing? This is not a live shipment booking.` ) ) return;
+        setOrderAwaitingConfirmation( order );
+    }
 
+    async function confirmCourierSubmission ()
+    {
+        const order = orderAwaitingConfirmation;
+        if ( !order ) return;
+        const weightGrams = Number( packageWeights[ order.id ] || order.courierPackageWeightG || 0 );
+        setOrderAwaitingConfirmation( null );
         setError( '' );
+        setNotice( '' );
         setUpdatingQueueIds( current => new Set( current ).add( order.id ) );
         try
         {
@@ -167,6 +177,7 @@ export default function CourierDashboard ()
             const result = await response.json();
             if ( !response.ok ) throw new Error( result.error || 'Could not submit to Delhivery sandbox.' );
             setPackageWeights( current => ( { ...current, [ order.id ]: '' } ) );
+            setNotice( `Shipment created in Delhivery sandbox for ${ order.orderNumber }. AWB: ${ result.waybill }.${ result.auditRecorded === false ? ' Audit result could not be updated; do not resubmit.' : '' }` );
             await loadDashboard();
         } catch ( cause )
         {
@@ -220,6 +231,7 @@ export default function CourierDashboard ()
         </section>
 
         { error && <p className="mt-5 border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800" role="alert">{ error }</p> }
+        { notice && <p className="mt-5 border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" role="status">{ notice }</p> }
 
         { loading && !dashboard ? <p className="mt-8 text-sm text-zinc-600">Loading real order data…</p> : null }
         { dashboard && summary && <>
@@ -292,13 +304,16 @@ export default function CourierDashboard ()
                                     </label>
                                     <button
                                         type="button"
-                                        onClick={ () => void submitToDelhiverySandbox( order ) }
+                                        onClick={ () => requestCourierSubmission( order ) }
                                         disabled={ updatingQueueIds.has( order.id ) || !packageWeights[ order.id ] && !order.courierPackageWeightG }
                                         className="button-outline text-sm disabled:opacity-50"
                                     >
-                                        { updatingQueueIds.has( order.id ) ? 'Submitting…' : 'Send to Delhivery sandbox' }
+                                        { updatingQueueIds.has( order.id ) ? 'Sending…' : 'Send to Courier' }
                                     </button>
                                 </div> }
+                                { order.courierApiSubmissionState === 'submitted' && <p className="mt-3 border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+                                    Shipment Created · Delhivery sandbox · AWB { order.trackingNumber || 'saved' }
+                                </p> }
                                 { order.courierApiSubmissionState === 'needs_review' && <p className="mt-3 border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800" role="alert">
                                     Check this submission in the Delhivery sandbox before any retry. { order.courierApiSubmissionError }
                                 </p> }
@@ -317,6 +332,22 @@ export default function CourierDashboard ()
                     </div>
                 ) }
             </section>
+            { orderAwaitingConfirmation && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                <section
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="courier-confirm-title"
+                    className="w-full max-w-md border border-stone bg-white p-6 shadow-xl"
+                >
+                    <h2 id="courier-confirm-title" className="display text-2xl text-navy">Confirm courier submission</h2>
+                    <p className="mt-3 text-sm leading-6 text-zinc-700">Are you sure you want to send this order&apos;s information to the courier company?</p>
+                    <p className="mt-2 text-sm text-zinc-600">Order { orderAwaitingConfirmation.orderNumber } will be sent to the Delhivery sandbox for testing only. This does not create a live shipment.</p>
+                    <div className="mt-6 flex justify-end gap-3">
+                        <button type="button" onClick={ () => setOrderAwaitingConfirmation( null ) } className="button-outline">Cancel</button>
+                        <button type="button" onClick={ () => void confirmCourierSubmission() } className="button">Confirm &amp; Send</button>
+                    </div>
+                </section>
+            </div> }
 
             <section className="mt-8">
                 <div className="flex flex-col gap-3 border-b border-stone pb-4 sm:flex-row sm:items-end sm:justify-between">
@@ -370,7 +401,7 @@ export default function CourierDashboard ()
                                         <p className="mt-1 text-xs text-zinc-500">{ order.itemCount } product units</p>
                                     </td>
                                     <td className="p-3">
-                                        <p className="font-medium">{ order.trackingNumber ? ( order.courierStatus || 'AWB saved · courier status not recorded' ) : 'No courier tracking record' }</p>
+                                        <p className="font-medium">{ order.trackingNumber ? ( order.courierApiSubmissionState === 'submitted' ? 'Shipment Created · ' : '' ) + ( order.courierStatus || 'AWB saved · courier status not recorded' ) : 'No courier tracking record' }</p>
                                         <p className="mt-1 text-xs capitalize text-zinc-500">Store order: { order.orderStatus.replaceAll( '_', ' ' ) }</p>
                                         { order.courierStatusUpdatedAt && <p className="mt-1 text-xs text-zinc-500">{ new Date( order.courierStatusUpdatedAt ).toLocaleString( 'en-IN' ) }</p> }
                                         { order.returnStatus && <p className="mt-1 text-xs text-violet-700">Return: { order.returnStatus }</p> }

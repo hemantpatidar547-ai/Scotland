@@ -355,7 +355,7 @@ export function ProductDetails ( { product, recommendedProducts }: { product: Pr
             <h2 className="display text-2xl mb-8 text-center tracking-wide uppercase text-navy">
               You may also like
             </h2>
-            <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-8 sm:gap-5 md:grid-cols-3 lg:grid-cols-4">
               { recommendedProducts.map( p => (
                 <ProductCard key={ p.id } product={ p } />
               ) ) }

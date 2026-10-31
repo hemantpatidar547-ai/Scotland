@@ -46,6 +46,17 @@ let _cachedProducts: Product[] | null = null;
 let _cacheTimestamp = 0;
 const PRODUCT_QUERY_BATCH_SIZE = 2;
 
+function isTransientNetworkError ( error: { message?: string; details?: string | null } ): boolean
+{
+    const message = `${ error.message || '' } ${ error.details || '' }`;
+    return /fetch failed|enotfound|eai_again|econnreset|etimedout|network error/i.test( message );
+}
+
+function wait ( milliseconds: number ): Promise<void>
+{
+    return new Promise( resolve => setTimeout( resolve, milliseconds ) );
+}
+
 const PRODUCT_SELECT = `
     id, slug, sku, name, description, short_description, gender, brand_name, price, mrp, sale_price, discount, updated_at,
     average_rating, review_count, material, tax_percentage, cost_price, style_origin, occasion,
@@ -168,12 +179,25 @@ async function fetchAllProductsFromDB (): Promise<Product[]>
         let offset = 0;
         while ( true )
         {
-            const { data, error } = await supabase
+            let result = await supabase
                 .from( 'products' )
                 .select( PRODUCT_SELECT )
                 .eq( 'status', 'active' )
                 .order( 'id' )
                 .range( offset, offset + PRODUCT_QUERY_BATCH_SIZE - 1 );
+
+            if ( result.error && isTransientNetworkError( result.error ) )
+            {
+                await wait( 400 );
+                result = await supabase
+                    .from( 'products' )
+                    .select( PRODUCT_SELECT )
+                    .eq( 'status', 'active' )
+                    .order( 'id' )
+                    .range( offset, offset + PRODUCT_QUERY_BATCH_SIZE - 1 );
+            }
+
+            const { data, error } = result;
 
             if ( error )
             {
@@ -182,6 +206,10 @@ async function fetchAllProductsFromDB (): Promise<Product[]>
                     `code=${ error.code || 'unknown' }; message=${ error.message }; ` +
                     `details=${ error.details || 'none' }; hint=${ error.hint || 'none' }`
                 );
+                if ( isTransientNetworkError( error ) )
+                {
+                    throw new Error( 'Could not reach Supabase. Check that NEXT_PUBLIC_SUPABASE_URL matches the active project URL and that Supabase is available.' );
+                }
                 throw new Error( `Could not load products from Supabase: ${ error.message }` );
             }
 
@@ -211,10 +239,21 @@ export async function getAllProducts ( fresh = false ): Promise<Product[]>
         return _cachedProducts;
     }
 
-    const products = await fetchAllProductsFromDB();
-    _cachedProducts = products;
-    _cacheTimestamp = Date.now();
-    return products;
+    try
+    {
+        const products = await fetchAllProductsFromDB();
+        _cachedProducts = products;
+        _cacheTimestamp = Date.now();
+        return products;
+    } catch ( error )
+    {
+        if ( !fresh && _cachedProducts )
+        {
+            console.warn( 'Supabase product refresh failed; serving the last successful product data for this server process.', error );
+            return _cachedProducts;
+        }
+        throw error;
+    }
 }
 
 export async function getProductsByIds ( productIds: string[] ): Promise<Product[]>

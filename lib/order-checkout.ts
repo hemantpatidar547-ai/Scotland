@@ -82,7 +82,11 @@ export async function priceCheckoutCart (
     };
 }
 
-export async function getCheckoutShippingCost ( db: CheckoutDatabase, subtotal: number ): Promise<number>
+export async function getCheckoutShippingCost (
+    db: CheckoutDatabase,
+    subtotal: number,
+    courierCharge = 50
+): Promise<number>
 {
     const { data, error } = await db.from( 'settings' )
         .select( 'free_delivery' )
@@ -95,5 +99,5 @@ export async function getCheckoutShippingCost ( db: CheckoutDatabase, subtotal: 
         throw new Error( 'Checkout delivery settings are temporarily unavailable.' );
     }
 
-    return data?.free_delivery || subtotal >= 4000 ? 0 : 50;
+    return data?.free_delivery || subtotal >= 4000 ? 0 : courierCharge;
 }

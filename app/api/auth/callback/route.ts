@@ -22,13 +22,10 @@ export async function GET ( request: Request )
         else
         {
             console.error( 'SSO Error:', error );
-            const loginUrl = new URL( '/login', origin );
-            loginUrl.searchParams.set( 'error', 'oauth_callback_failed' );
-            return NextResponse.redirect( loginUrl );
+            return NextResponse.redirect( `${ origin }/login?error=Authentication failed` );
         }
     }
 
-    const loginUrl = new URL( '/login', origin );
-    loginUrl.searchParams.set( 'error', 'oauth_callback_missing_code' );
-    return NextResponse.redirect( loginUrl );
+    // return the user to an error page with instructions
+    return NextResponse.redirect( `${ origin }/login?error=OAuth Configuration Error` );
 }

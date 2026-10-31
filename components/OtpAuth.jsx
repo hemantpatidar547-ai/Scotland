@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 /* ── Google "G" Icon ── */
@@ -35,15 +35,6 @@ export default function OtpAuth ()
     const [ loading, setLoading ] = useState( false );
     const [ error, setError ] = useState( '' );
 
-    useEffect( () =>
-    {
-        const oauthError = new URLSearchParams( window.location.search ).get( 'error' );
-        if ( oauthError === 'oauth_callback_failed' || oauthError === 'oauth_callback_missing_code' )
-        {
-            setError( 'Google sign-in could not be completed. Please try again. If the problem continues, check the Google OAuth callback URL in Supabase.' );
-        }
-    }, [] );
-
     const handleGoogleLogin = async () =>
     {
         setLoading( true );
@@ -51,7 +42,8 @@ export default function OtpAuth ()
 
         try {
             const supabase = createClient();
-            const callbackUrl = new URL( '/api/auth/callback', window.location.origin );
+            const siteOrigin = process.env.NEXT_PUBLIC_SITE_URL?.replace( /\/+$/, '' ) || window.location.origin;
+            const callbackUrl = new URL( '/api/auth/callback', siteOrigin );
             const requestedRedirect = new URLSearchParams( window.location.search ).get( 'redirect' );
             const redirectTo = requestedRedirect?.startsWith( '/' ) && !requestedRedirect.startsWith( '//' )
                 ? requestedRedirect
@@ -62,6 +54,10 @@ export default function OtpAuth ()
                 provider: 'google',
                 options: {
                     redirectTo: callbackUrl.toString(),
+                    queryParams: {
+                        access_type: 'offline',
+                        prompt: 'consent',
+                    },
                 },
             } );
 

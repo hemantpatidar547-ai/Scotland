@@ -9,6 +9,20 @@ const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', { style: 'currenc
 
 const DELIVERY_CHARGE = 50; // Flat ₹50 delivery for all orders
 
+type DeliveryMethodQuote = {
+    available: boolean;
+    courierCharge: number | null;
+};
+
+type DeliveryCheck = {
+    status: 'available' | 'unavailable';
+    message: string;
+    estimatedDeliveryDays: number | null;
+    district: string | null;
+    cod: DeliveryMethodQuote;
+    prepaid: DeliveryMethodQuote;
+};
+
 export default function Checkout ()
 {
     const { cart, clearCart, isReady } = useStore();
@@ -19,11 +33,13 @@ export default function Checkout ()
     const [ mounted, setMounted ] = useState( false );
     const [ returnPolicyAccepted, setReturnPolicyAccepted ] = useState( false );
     const [ deliveryCharge, setDeliveryCharge ] = useState( 50 );
+    const [ freeDeliveryOffer, setFreeDeliveryOffer ] = useState( false );
 
     const [ pincode, setPincode ] = useState( '' );
     const [ city, setCity ] = useState( '' );
-    const [ isFetchingCity, setIsFetchingCity ] = useState( false );
-    const [ pinError, setPinError ] = useState( '' );
+    const [ deliveryCheck, setDeliveryCheck ] = useState<DeliveryCheck | null>( null );
+    const [ deliveryCheckStatus, setDeliveryCheckStatus ] = useState<'idle' | 'checking' | 'error'>( 'idle' );
+    const [ deliveryCheckError, setDeliveryCheckError ] = useState( '' );
 
     // Pre-filled user data from session
     const [ userEmail, setUserEmail ] = useState( '' );
@@ -31,12 +47,19 @@ export default function Checkout ()
     const [ userLastName, setUserLastName ] = useState( '' );
     const [ userPhone, setUserPhone ] = useState( '' );
 
+    const subtotal = cart.reduce( ( a, x ) => a + ( x.product.salePrice || x.product.price ) * x.quantity, 0 );
+    const total = subtotal + deliveryCharge;
+
     useEffect( () =>
     {
         setMounted( true );
         fetch( '/api/settings?t=' + Date.now() )
             .then( r => r.json() )
-            .then( data => setDeliveryCharge( data.deliveryCharge ?? 50 ) )
+            .then( data =>
+            {
+                setFreeDeliveryOffer( data.freeDelivery === true );
+                setDeliveryCharge( data.deliveryCharge ?? 50 );
+            } )
             .catch( () => { } );
 
         // Auto-fill from authenticated session
@@ -60,10 +83,67 @@ export default function Checkout ()
             .catch( () => { } );
     }, [] );
 
-    if ( !mounted || !isReady ) return <main className="shell py-24 text-center"><p className="text-zinc-400">Loading checkout...</p></main>;
+    useEffect( () =>
+    {
+        setDeliveryCheck( null );
+        setDeliveryCheckError( '' );
+        if ( pincode.length !== 6 )
+        {
+            setDeliveryCheckStatus( 'idle' );
+            return;
+        }
 
-    const subtotal = cart.reduce( ( a, x ) => a + ( x.product.salePrice || x.product.price ) * x.quantity, 0 );
-    const total = subtotal + deliveryCharge;
+        const controller = new AbortController();
+        const timeout = window.setTimeout( async () =>
+        {
+            setDeliveryCheckStatus( 'checking' );
+            try
+            {
+                const response = await fetch( '/api/delivery/serviceability', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify( { pincode } ),
+                    signal: controller.signal,
+                } );
+                const result = await response.json();
+                if ( !response.ok ) throw new Error( result.error || 'Delivery availability is temporarily unavailable.' );
+
+                const availability = result as DeliveryCheck;
+                setDeliveryCheck( availability );
+                setDeliveryCheckStatus( 'idle' );
+                if ( availability.district ) setCity( availability.district );
+                if ( availability.status === 'available' &&
+                    !availability.cod.available &&
+                    availability.prepaid.available )
+                {
+                    setPaymentMethod( 'razorpay' );
+                }
+            } catch ( error )
+            {
+                if ( controller.signal.aborted ) return;
+                setDeliveryCheckStatus( 'error' );
+                setDeliveryCheckError( error instanceof Error
+                    ? error.message
+                    : 'Delivery availability is temporarily unavailable. Please try again.' );
+            }
+        }, 350 );
+
+        return () =>
+        {
+            window.clearTimeout( timeout );
+            controller.abort();
+        };
+    }, [ pincode ] );
+
+    useEffect( () =>
+    {
+        if ( deliveryCheck?.status !== 'available' ) return;
+        const quote = paymentMethod === 'cod' ? deliveryCheck.cod : deliveryCheck.prepaid;
+        if ( quote.courierCharge === null ) return;
+        setDeliveryCharge( freeDeliveryOffer || subtotal >= 4000 ? 0 : quote.courierCharge );
+    }, [ deliveryCheck, freeDeliveryOffer, paymentMethod, subtotal ] );
+
+    if ( !mounted || !isReady ) return <main className="shell py-24 text-center"><p className="text-zinc-400">Loading checkout...</p></main>;
 
     const initializeRazorpay = () =>
     {
@@ -77,37 +157,11 @@ export default function Checkout ()
         } );
     };
 
-    const handlePincodeChange = async ( e: React.ChangeEvent<HTMLInputElement> ) =>
+    const handlePincodeChange = ( e: React.ChangeEvent<HTMLInputElement> ) =>
     {
         const val = e.target.value.replace( /\D/g, '' ).slice( 0, 6 ); // Only numbers
         setPincode( val );
-        setPinError( '' );
-
-        if ( val.length === 6 )
-        {
-            setIsFetchingCity( true );
-            try
-            {
-                const res = await fetch( `https://api.postalpincode.in/pincode/${ val }` );
-                const data = await res.json();
-
-                if ( data && data[ 0 ] && data[ 0 ].Status === 'Success' && data[ 0 ].PostOffice )
-                {
-                    setCity( data[ 0 ].PostOffice[ 0 ].District || data[ 0 ].PostOffice[ 0 ].Division ); // Set auto City
-                } else
-                {
-                    setCity( '' );
-                    setPinError( 'Invalid PIN Code' );
-                }
-            } catch
-            {
-                setCity( '' );
-                setPinError( 'Failed to verify PIN' );
-            } finally
-            {
-                setIsFetchingCity( false );
-            }
-        }
+        setDeliveryCharge( freeDeliveryOffer || subtotal >= 4000 ? 0 : DELIVERY_CHARGE );
     };
 
     async function submitOrderToBackend ( shippingAddress: any, razorpayData: any = null )
@@ -171,6 +225,7 @@ export default function Checkout ()
                         color: item.color,
                         quantity: item.quantity,
                     } ) ),
+                    pincode: shippingAddress.postalCode,
                 } )
             } ).then( response => response.json() );
 
@@ -241,6 +296,19 @@ export default function Checkout ()
     async function submit ( e: FormEvent )
     {
         e.preventDefault();
+
+        const selectedDelivery = paymentMethod === 'cod' ? deliveryCheck?.cod : deliveryCheck?.prepaid;
+        if ( deliveryCheckStatus === 'error' || deliveryCheck?.status !== 'available' ||
+            deliveryCheck.cod.available === false && deliveryCheck.prepaid.available === false )
+        {
+            alert( deliveryCheckError || deliveryCheck?.message || 'Please wait for delivery availability to be confirmed.' );
+            return;
+        }
+        if ( !selectedDelivery?.available || selectedDelivery.courierCharge === null )
+        {
+            alert( 'This payment method is not available for the entered PIN code.' );
+            return;
+        }
 
         trackAnalyticsEvent( 'begin_checkout', {
             currency: 'INR',
@@ -318,7 +386,7 @@ export default function Checkout ()
 
                             <div className="relative">
                                 <input
-                                    className={ `input w-full ${ pinError ? 'border-red-500' : '' }` }
+                                    className={ `input w-full ${ deliveryCheck?.status === 'unavailable' || deliveryCheckStatus === 'error' ? 'border-red-500' : '' }` }
                                     required
                                     placeholder="PIN code"
                                     value={ pincode }
@@ -328,7 +396,7 @@ export default function Checkout ()
                                     maxLength={ 6 }
                                     minLength={ 6 }
                                 />
-                                { isFetchingCity && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-stone border-t-navy rounded-full animate-spin"></div> }
+                                { deliveryCheckStatus === 'checking' && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-stone border-t-navy rounded-full animate-spin"></div> }
                             </div>
 
                             <input
@@ -342,8 +410,32 @@ export default function Checkout ()
                                 title="City should only contain letters"
                             />
 
-                            { pinError && (
-                                <p className="text-xs text-red-500 sm:col-span-2 font-medium">{ pinError }</p>
+                            { deliveryCheckStatus === 'checking' && (
+                                <p className="text-xs text-zinc-500 sm:col-span-2" role="status">Checking courier serviceability…</p>
+                            ) }
+                            { deliveryCheck?.status === 'available' && (
+                                <div className="border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 sm:col-span-2" role="status">
+                                    <p className="font-semibold">Delivery Available</p>
+                                    <p className="mt-1 text-xs">Estimated delivery: { deliveryCheck.estimatedDeliveryDays } days after courier handover.</p>
+                                    <div className="mt-2 grid gap-1 text-xs sm:grid-cols-2">
+                                        <p>Prepaid: { deliveryCheck.prepaid.available
+                                            ? `Available · ${ money( freeDeliveryOffer || subtotal >= 4000 ? 0 : deliveryCheck.prepaid.courierCharge || 0 ) } delivery charge${ freeDeliveryOffer || subtotal >= 4000 ? ' (free delivery offer)' : '' }`
+                                            : 'Not available' }</p>
+                                        <p>Cash on Delivery: { deliveryCheck.cod.available
+                                            ? `Available · ${ money( freeDeliveryOffer || subtotal >= 4000 ? 0 : deliveryCheck.cod.courierCharge || 0 ) } delivery charge${ freeDeliveryOffer || subtotal >= 4000 ? ' (free delivery offer)' : '' }`
+                                            : 'Not available' }</p>
+                                    </div>
+                                </div>
+                            ) }
+                            { deliveryCheck?.status === 'unavailable' && (
+                                <p className="text-xs font-medium text-red-600 sm:col-span-2" role="alert">
+                                    Sorry, delivery is not available at this PIN code.
+                                </p>
+                            ) }
+                            { deliveryCheckStatus === 'error' && (
+                                <p className="text-xs font-medium text-amber-700 sm:col-span-2" role="alert">
+                                    { deliveryCheckError } This does not mean the PIN code is unavailable.
+                                </p>
                             ) }
 
                             <input className="input sm:col-span-2" required type="tel" name="phone" placeholder="Phone number (10 digits)" pattern="[0-9]{10}" maxLength={ 10 } minLength={ 10 } title="Phone number must be exactly 10 digits" value={ userPhone } onChange={ e => setUserPhone( e.target.value.replace( /\D/g, '' ).slice( 0, 10 ) ) } />
@@ -352,12 +444,12 @@ export default function Checkout ()
 
                     <section>
                         <h2 className="font-semibold">Payment</h2>
-                        <label className={ `mt-3 flex gap-3 border p-4 text-sm cursor-pointer ${ paymentMethod === 'cod' ? 'border-navy bg-white' : 'border-stone bg-white' }` }>
-                            <input checked={ paymentMethod === 'cod' } onChange={ () => setPaymentMethod( 'cod' ) } type="radio" name="payment" />
+                        <label className={ `mt-3 flex gap-3 border p-4 text-sm cursor-pointer ${ paymentMethod === 'cod' ? 'border-navy bg-white' : 'border-stone bg-white' } ${ deliveryCheck?.status === 'available' && !deliveryCheck.cod.available ? 'cursor-not-allowed opacity-50' : '' }` }>
+                            <input disabled={ deliveryCheck?.status === 'available' && !deliveryCheck.cod.available } checked={ paymentMethod === 'cod' } onChange={ () => setPaymentMethod( 'cod' ) } type="radio" name="payment" />
                             <span className="font-medium">Cash on Delivery</span>
                         </label>
-                        <label className={ `mt-2 flex gap-3 border p-4 text-sm cursor-pointer ${ paymentMethod === 'razorpay' ? 'border-navy bg-white' : 'border-stone bg-white' }` }>
-                            <input checked={ paymentMethod === 'razorpay' } onChange={ () => setPaymentMethod( 'razorpay' ) } type="radio" name="payment" />
+                        <label className={ `mt-2 flex gap-3 border p-4 text-sm cursor-pointer ${ paymentMethod === 'razorpay' ? 'border-navy bg-white' : 'border-stone bg-white' } ${ deliveryCheck?.status === 'available' && !deliveryCheck.prepaid.available ? 'cursor-not-allowed opacity-50' : '' }` }>
+                            <input disabled={ deliveryCheck?.status === 'available' && !deliveryCheck.prepaid.available } checked={ paymentMethod === 'razorpay' } onChange={ () => setPaymentMethod( 'razorpay' ) } type="radio" name="payment" />
                             <span className="font-medium">Online Payment (Razorpay)</span>
                         </label>
                         <p className="mt-2 text-xs text-zinc-500">
@@ -385,7 +477,14 @@ export default function Checkout ()
                         </label>
                     </section>
 
-                    <button disabled={ !cart.length || loading || !returnPolicyAccepted } className="button w-full disabled:opacity-40 transition flex justify-center items-center">
+                    <button disabled={
+                        !cart.length ||
+                        loading ||
+                        !returnPolicyAccepted ||
+                        deliveryCheckStatus !== 'idle' ||
+                        deliveryCheck?.status !== 'available' ||
+                        !( paymentMethod === 'cod' ? deliveryCheck.cod.available : deliveryCheck.prepaid.available )
+                    } className="button w-full disabled:opacity-40 transition flex justify-center items-center">
                         { loading ? 'Processing...' : ( paymentMethod === 'razorpay' ? 'Pay Now securely' : 'Place order (COD)' ) }
                     </button>
                 </form>

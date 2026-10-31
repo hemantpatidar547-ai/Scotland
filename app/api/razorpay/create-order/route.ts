@@ -3,13 +3,25 @@ import Razorpay from 'razorpay';
 import { z } from 'zod';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { checkoutCartSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
+import { enforceRateLimit } from '@/lib/rate-limit';
+import { DelhiveryServiceError, getDelhiveryDeliveryEstimate } from '@/lib/delhivery/serviceability';
 
-const paymentPayload = z.object( { cartItems: checkoutCartSchema } );
+const paymentPayload = z.object( {
+    cartItems: checkoutCartSchema,
+    pincode: z.string().regex( /^[0-9]{6}$/ ),
+} );
 
 export async function POST ( request: NextRequest )
 {
     try
     {
+        const rateLimitResponse = await enforceRateLimit( request, {
+            scope: 'razorpay-create-order',
+            limit: 10,
+            windowSeconds: 60,
+        } );
+        if ( rateLimitResponse ) return rateLimitResponse;
+
         const payload = paymentPayload.safeParse( await request.json() );
         if ( !payload.success ) return NextResponse.json( { error: 'Your cart is invalid. Refresh it and try again.' }, { status: 400 } );
 
@@ -22,7 +34,14 @@ export async function POST ( request: NextRequest )
 
         const db = getSupabaseAdmin();
         const pricedCart = await priceCheckoutCart( db, payload.data.cartItems );
-        const shippingCost = await getCheckoutShippingCost( db, pricedCart.subtotal );
+        const deliveryEstimate = await getDelhiveryDeliveryEstimate( payload.data.pincode );
+        if ( !deliveryEstimate.serviceable )
+            return NextResponse.json( { error: 'Sorry, delivery is not available at this PIN code.' }, { status: 422 } );
+        if ( !deliveryEstimate.prepaidAvailable )
+            return NextResponse.json( { error: 'Prepaid delivery is not available at this PIN code. Choose another available payment method.' }, { status: 422 } );
+        if ( deliveryEstimate.prepaidCharge === null ) throw new DelhiveryServiceError();
+
+        const shippingCost = await getCheckoutShippingCost( db, pricedCart.subtotal, deliveryEstimate.prepaidCharge );
         const amount = pricedCart.subtotal + shippingCost;
         if ( !Number.isFinite( amount ) || amount <= 0 )
         {
@@ -40,6 +59,13 @@ export async function POST ( request: NextRequest )
     } catch ( error )
     {
         console.error( 'Razorpay create-order error:', error );
+        if ( error instanceof DelhiveryServiceError )
+        {
+            return NextResponse.json(
+                { error: 'Delivery availability is temporarily unavailable. Please try again.' },
+                { status: 503 }
+            );
+        }
         const unavailable = error instanceof Error &&
             ( error.message.includes( 'no longer available' ) || error.message.includes( 'no longer matches' ) );
         return NextResponse.json(

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
+import { enforceRateLimit } from '@/lib/rate-limit';
 
 const returnSchema = z.object( {
     reason: z.string().trim().min( 5 ).max( 500 ),
@@ -18,6 +19,14 @@ export async function POST (
     const { data: { user }, error: authError } = await auth.auth.getUser();
     if ( authError || !user )
         return NextResponse.json( { error: 'Please sign in to request a return.' }, { status: 401 } );
+
+    const rateLimitResponse = await enforceRateLimit( request, {
+        scope: 'order-return',
+        limit: 5,
+        windowSeconds: 900,
+        subject: user.id,
+    } );
+    if ( rateLimitResponse ) return rateLimitResponse;
 
     const { id } = await params;
     if ( !/^[0-9a-f-]{36}$/i.test( id ) )

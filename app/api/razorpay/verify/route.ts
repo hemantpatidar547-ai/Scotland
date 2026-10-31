@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { enforceRateLimit } from '@/lib/rate-limit';
 
 export async function POST ( req: NextRequest )
 {
     try
     {
+        const rateLimitResponse = await enforceRateLimit( req, {
+            scope: 'razorpay-verify',
+            limit: 20,
+            windowSeconds: 60,
+        } );
+        if ( rateLimitResponse ) return rateLimitResponse;
+
         const {
             razorpay_order_id,
             razorpay_payment_id,

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import DeliveryServiceabilityPanel from '@/components/admin/DeliveryServiceabilityPanel';
 
 type CourierOrder = {
     id: string;
@@ -229,6 +230,8 @@ export default function CourierDashboard ()
             <p className="font-semibold">Sandbox shipment testing only</p>
             <p className="mt-1 leading-6">A confirmed order can be sent to the Delhivery sandbox below after entering its packed weight. This is not a live booking. Production shipment creation, labels, automatic carrier scans, and live GPS are not enabled. Manifested means Delhivery accepted the test request; it does not mean the parcel was picked up or delivered.</p>
         </section>
+
+        <DeliveryServiceabilityPanel />
 
         { error && <p className="mt-5 border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800" role="alert">{ error }</p> }
         { notice && <p className="mt-5 border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" role="status">{ notice }</p> }

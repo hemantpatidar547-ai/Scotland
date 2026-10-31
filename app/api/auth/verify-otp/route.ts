@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateEmail, verifyEmailOtp } from '@/lib/supabase/email-auth';
+import { enforceRateLimit } from '@/lib/rate-limit';
 
 export async function POST ( request: NextRequest )
 {
@@ -18,6 +19,14 @@ export async function POST ( request: NextRequest )
         {
             return NextResponse.json( { error: 'Enter a valid OTP.' }, { status: 400 } );
         }
+
+        const rateLimitResponse = await enforceRateLimit( request, {
+            scope: 'auth-otp-verify',
+            limit: 10,
+            windowSeconds: 900,
+            subject: email,
+        } );
+        if ( rateLimitResponse ) return rateLimitResponse;
 
         const user = await verifyEmailOtp( email, otp );
 

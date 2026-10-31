@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
+import { enforceRateLimit } from '@/lib/rate-limit';
 
 /* ── POST /api/coupons/validate ─── */
 export async function POST ( req: NextRequest )
 {
     try
     {
+        const rateLimitResponse = await enforceRateLimit( req, {
+            scope: 'coupon-validate',
+            limit: 30,
+            windowSeconds: 60,
+        } );
+        if ( rateLimitResponse ) return rateLimitResponse;
+
         const { code, cartTotal } = await req.json();
         if ( !code ) return NextResponse.json( { error: 'Coupon code is required' }, { status: 400 } );
 

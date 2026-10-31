@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { getDelhiveryConfig } from '@/lib/delhivery/config';
+import { checkDelhiveryPincode, DelhiveryServiceError } from '@/lib/delhivery/serviceability';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -112,6 +113,13 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
         const country = typeof address?.country === 'string' ? address.country.trim() : 'India';
         if ( !name || !streetAddress || !city || country.toLowerCase() !== 'india' || !/^\d{6}$/.test( pin ) || phone.length < 10 || phone.length > 15 )
             return NextResponse.json( { error: 'The order needs a valid Indian delivery name, address, city, 6-digit pincode, and phone number.' }, { status: 400 } );
+
+        const serviceability = await checkDelhiveryPincode( pin );
+        if ( !serviceability.serviceable )
+            return NextResponse.json( { error: 'Sorry, delivery is not available at this PIN code. Shipment was not created.' }, { status: 422 } );
+
+        if ( isCod ? !serviceability.codAvailable : !serviceability.prepaidAvailable )
+            return NextResponse.json( { error: 'This payment method is not serviceable at the delivery PIN code. Shipment was not created.' }, { status: 422 } );
 
         const items = Array.isArray( order.items ) ? order.items.filter( isRecord ) : [];
         const productsDescription = items
@@ -284,6 +292,8 @@ export async function POST ( req: NextRequest, { params }: { params: Promise<{ i
     } catch ( error )
     {
         console.error( 'Delhivery sandbox shipment processing failed.' );
+        if ( error instanceof DelhiveryServiceError )
+            return NextResponse.json( { error: 'Delivery availability could not be confirmed. Shipment was not created; please retry shortly.' }, { status: 503 } );
         if ( error instanceof Error && error.message.startsWith( 'Delhivery sandbox is not configured.' ) )
             return NextResponse.json( { error: error.message }, { status: 503 } );
         if (

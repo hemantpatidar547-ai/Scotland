@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminSession, getAdminSessionCookieName, getAdminSessionMaxAge, verifyAdminPassword } from '@/lib/admin-session';
 import { isAdminEmail } from '@/lib/admin-authorization';
+import { enforceRateLimit } from '@/lib/rate-limit';
 
 export async function POST ( request: NextRequest )
 {
@@ -21,6 +22,13 @@ export async function POST ( request: NextRequest )
             { status: 503 }
         );
     }
+
+    const rateLimitResponse = await enforceRateLimit( request, {
+        scope: 'admin-login',
+        limit: 5,
+        windowSeconds: 900,
+    } );
+    if ( rateLimitResponse ) return rateLimitResponse;
 
     try
     {

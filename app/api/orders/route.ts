@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { bustProductCache } from '@/lib/data';
 import { checkoutCartSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
+import { enforceRateLimit } from '@/lib/rate-limit';
+import { DelhiveryServiceError, getDelhiveryDeliveryEstimate } from '@/lib/delhivery/serviceability';
 import { z } from 'zod';
 
 const shippingAddressSchema = z.object( {
@@ -12,7 +14,7 @@ const shippingAddressSchema = z.object( {
     email: z.string().email().max( 255 ).optional(),
     address: z.string().trim().min( 4 ).max( 300 ),
     city: z.string().trim().min( 1 ).max( 100 ),
-    postalCode: z.string().trim().min( 3 ).max( 20 ),
+    postalCode: z.string().trim().regex( /^[0-9]{6}$/ ),
     phone: z.string().trim().min( 7 ).max( 30 ),
     country: z.string().trim().min( 1 ).max( 80 ).default( 'India' ),
 } );
@@ -51,6 +53,13 @@ export async function POST ( request: NextRequest )
 {
     try
     {
+        const rateLimitResponse = await enforceRateLimit( request, {
+            scope: 'order-create',
+            limit: 5,
+            windowSeconds: 600,
+        } );
+        if ( rateLimitResponse ) return rateLimitResponse;
+
         const body = await request.json();
         const cart = checkoutCartSchema.safeParse( body.cartItems );
         const address = shippingAddressSchema.safeParse( body.shippingAddress );
@@ -68,7 +77,22 @@ export async function POST ( request: NextRequest )
         const db = getSupabaseAdmin();
         const pricedCart = await priceCheckoutCart( db, cart.data );
 
-        const shippingCost = await getCheckoutShippingCost( db, pricedCart.subtotal );
+        const deliveryEstimate = await getDelhiveryDeliveryEstimate( address.data.postalCode );
+        if ( !deliveryEstimate.serviceable )
+            return NextResponse.json( { error: 'Sorry, delivery is not available at this PIN code.' }, { status: 422 } );
+
+        const methodIsAvailable = body.paymentMethod === 'cod'
+            ? deliveryEstimate.codAvailable
+            : deliveryEstimate.prepaidAvailable;
+        const courierCharge = body.paymentMethod === 'cod'
+            ? deliveryEstimate.codCharge
+            : deliveryEstimate.prepaidCharge;
+        if ( !methodIsAvailable )
+            return NextResponse.json( { error: 'The selected payment method is not available at this PIN code.' }, { status: 422 } );
+        if ( courierCharge === null )
+            throw new DelhiveryServiceError();
+
+        const shippingCost = await getCheckoutShippingCost( db, pricedCart.subtotal, courierCharge );
         const finalAmount = pricedCart.subtotal + shippingCost;
         if ( !Number.isFinite( finalAmount ) || finalAmount <= 0 )
         {
@@ -155,6 +179,13 @@ export async function POST ( request: NextRequest )
     } catch ( error )
     {
         console.error( 'Order creation error:', error );
+        if ( error instanceof DelhiveryServiceError )
+        {
+            return NextResponse.json(
+                { error: 'Delivery availability is temporarily unavailable. Please try again; your order was not confirmed.' },
+                { status: 503 }
+            );
+        }
         const message = error instanceof Error ? error.message : '';
         const unavailable = message.toLowerCase().includes( 'no longer available' ) ||
             message.toLowerCase().includes( 'no longer matches' );

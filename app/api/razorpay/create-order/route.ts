@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Razorpay from 'razorpay';
-import { z } from 'zod';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
-import { checkoutCartSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
+import { checkoutCartSchema, checkoutShippingAddressSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { DelhiveryServiceError, getDelhiveryDeliveryEstimate } from '@/lib/delhivery/serviceability';
-
-const paymentPayload = z.object( {
-    cartItems: checkoutCartSchema,
-    pincode: z.string().regex( /^[0-9]{6}$/ ),
-} );
 
 export async function POST ( request: NextRequest )
 {
@@ -22,8 +16,13 @@ export async function POST ( request: NextRequest )
         } );
         if ( rateLimitResponse ) return rateLimitResponse;
 
-        const payload = paymentPayload.safeParse( await request.json() );
-        if ( !payload.success ) return NextResponse.json( { error: 'Your cart is invalid. Refresh it and try again.' }, { status: 400 } );
+        const body = await request.json();
+        const cart = checkoutCartSchema.safeParse( body.cartItems );
+        if ( !cart.success )
+            return NextResponse.json( { error: 'Your cart is invalid. Refresh it and try again.' }, { status: 400 } );
+        const address = checkoutShippingAddressSchema.safeParse( body.shippingAddress );
+        if ( !address.success )
+            return NextResponse.json( { error: 'Complete your name, email, street address, city, 6-digit PIN code, and 10-digit phone number before payment.' }, { status: 400 } );
 
         const keyId = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
         const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -33,8 +32,8 @@ export async function POST ( request: NextRequest )
         }
 
         const db = getSupabaseAdmin();
-        const pricedCart = await priceCheckoutCart( db, payload.data.cartItems );
-        const deliveryEstimate = await getDelhiveryDeliveryEstimate( payload.data.pincode );
+        const pricedCart = await priceCheckoutCart( db, cart.data );
+        const deliveryEstimate = await getDelhiveryDeliveryEstimate( address.data.postalCode );
         if ( !deliveryEstimate.serviceable )
             return NextResponse.json( { error: 'Sorry, delivery is not available at this PIN code.' }, { status: 422 } );
         if ( !deliveryEstimate.prepaidAvailable )

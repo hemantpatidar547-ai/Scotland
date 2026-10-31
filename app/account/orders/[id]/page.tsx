@@ -27,7 +27,7 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
 
     const db = getSupabaseAdmin();
     const query = db.from( 'orders' )
-        .select( 'id, order_number, created_at, order_status, payment_status, payment_method, shipping_address, tracking_number, courier_name, courier_status, courier_status_updated_at, subtotal, shipping_cost, coupon_discount, final_amount, total_amount, items, delivered_at, return_status, return_reason, return_item_indexes, return_requested_at, return_refund_amount' )
+        .select( 'id, order_number, created_at, order_status, payment_status, payment_method, shipping_address, tracking_number, courier_name, courier_status, courier_status_updated_at, subtotal, shipping_cost, coupon_discount, final_amount, total_amount, items, delivered_at, return_status, return_reason, return_item_indexes, return_requested_at, return_refund_amount, return_shipping_charge' )
         .eq( 'user_id', user.id );
     const { data: order, error } = /^[0-9a-f-]{36}$/i.test( id )
         ? await query.eq( 'id', id ).maybeSingle()
@@ -44,7 +44,9 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
     const currentStatus = String( order.order_status || 'pending_payment' ).toLowerCase();
     const statusIndex = steps.indexOf( currentStatus === 'pending_payment' ? 'pending' : currentStatus );
     const total = Number( order.final_amount ?? order.total_amount ?? 0 );
-    const canCancel = [ 'pending_payment', 'pending', 'new', 'paid', 'confirmed', 'processing', 'packed' ].includes( currentStatus );
+    const cancellationStatusOpen = [ 'pending_payment', 'pending', 'new', 'paid', 'confirmed', 'processing', 'packed' ].includes( currentStatus );
+    const cancellationDeadline = new Date( order.created_at ).getTime() + 12 * 60 * 60 * 1000;
+    const canCancel = cancellationStatusOpen && Date.now() <= cancellationDeadline;
     const deliveredAt = order.delivered_at ? new Date( order.delivered_at ).getTime() : null;
     const returnWindowOpen = currentStatus === 'delivered' && deliveredAt !== null && Date.now() <= deliveredAt + 48 * 60 * 60 * 1000;
 
@@ -117,12 +119,18 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
                         { order.courier_status_updated_at && <p className="mt-1 text-xs text-zinc-500">Updated { new Date( order.courier_status_updated_at ).toLocaleString( 'en-IN' ) }</p> }
                         <p className="mt-2 text-xs text-zinc-500">Tracking updates are shown when the store receives and saves them.</p>
                     </div> }
-                    { canCancel && <CancelOrderButton orderId={ order.id } prepaid={ order.payment_method !== 'cod' && order.payment_status === 'paid' } /> }
+                    { canCancel && <CancelOrderButton
+                        orderId={ order.id }
+                        prepaid={ order.payment_method !== 'cod' && order.payment_status === 'paid' }
+                        cancellationDeadline={ new Date( cancellationDeadline ).toISOString() }
+                    /> }
+                    { cancellationStatusOpen && !canCancel && <p className="mt-5 border-t border-stone pt-5 text-sm text-zinc-600">The 12-hour cancellation window has ended. Please contact customer support if you need help with this order.</p> }
                     { order.return_status ? (
                         <div className="mt-5 border-t border-stone pt-5">
                             <h2 className="font-semibold">Return status: <span className="capitalize">{ String( order.return_status ).replaceAll( '_', ' ' ) }</span></h2>
                             { Array.isArray( order.return_item_indexes ) && <p className="mt-2 text-sm text-zinc-600">Products: { order.return_item_indexes.map( ( index: number ) => items[ index ]?.name || 'Product' ).join( ', ' ) }</p> }
                             { order.return_reason && <p className="mt-2 text-sm text-zinc-600">Reason: { order.return_reason }</p> }
+                            { order.return_shipping_charge !== null && <p className="mt-2 text-sm">Return courier charge deducted: ₹{ Number( order.return_shipping_charge || 0 ).toLocaleString( 'en-IN' ) }</p> }
                             { Number.isFinite( Number( order.return_refund_amount ) ) && <p className="mt-2 text-sm">Estimated refund: ₹{ Number( order.return_refund_amount || 0 ).toLocaleString( 'en-IN' ) }</p> }
                             { order.return_status === 'requested' && <p className="mt-2 text-xs text-zinc-500">The store will review your request. Refund is processed after the return is received and checked.</p> }
                             { order.return_status === 'refunded' && <p className="mt-2 text-xs text-emerald-700">The store has marked the refund as processed.</p> }
@@ -131,9 +139,6 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
                         <ReturnOrderForm
                             orderId={ order.id }
                             items={ items }
-                            couponDiscount={ Number( order.coupon_discount || 0 ) }
-                            orderTotal={ total }
-                            deliveryCharge={ Number( order.shipping_cost || 0 ) }
                         />
                     ) : currentStatus === 'delivered' && deliveredAt !== null ? (
                         <p className="mt-5 border-t border-stone pt-5 text-xs text-zinc-500">The 48-hour return window has ended.</p>

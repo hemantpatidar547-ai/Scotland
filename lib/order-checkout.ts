@@ -8,6 +8,16 @@ export const checkoutCartSchema = z.array( z.object( {
     color: z.string().min( 1 ).max( 80 ).optional(),
 } ) ).min( 1 ).max( 100 );
 
+export const checkoutShippingAddressSchema = z.object( {
+    name: z.string().trim().min( 2 ).max( 120 ),
+    email: z.string().trim().email().max( 255 ),
+    address: z.string().trim().min( 4 ).max( 300 ),
+    city: z.string().trim().min( 1 ).max( 100 ),
+    postalCode: z.string().trim().regex( /^[0-9]{6}$/ ),
+    phone: z.string().trim().regex( /^[0-9]{10}$/ ),
+    country: z.literal( 'India' ),
+} );
+
 type CheckoutDatabase = {
     from: ( table: string ) => any;
 };

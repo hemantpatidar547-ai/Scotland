@@ -42,6 +42,7 @@ type CourierOrder = {
     itemCount: number;
     returnStatus: string | null;
     returnRefundAmount: number | null;
+    returnShippingCharge: number | null;
 };
 
 type DashboardData = {
@@ -407,7 +408,10 @@ export default function CourierDashboard ()
                                         <p className="font-medium">{ order.trackingNumber ? ( order.courierApiSubmissionState === 'submitted' ? 'Shipment Created · ' : '' ) + ( order.courierStatus || 'AWB saved · courier status not recorded' ) : 'No courier tracking record' }</p>
                                         <p className="mt-1 text-xs capitalize text-zinc-500">Store order: { order.orderStatus.replaceAll( '_', ' ' ) }</p>
                                         { order.courierStatusUpdatedAt && <p className="mt-1 text-xs text-zinc-500">{ new Date( order.courierStatusUpdatedAt ).toLocaleString( 'en-IN' ) }</p> }
-                                        { order.returnStatus && <p className="mt-1 text-xs text-violet-700">Return: { order.returnStatus }</p> }
+                                        { order.returnStatus && <>
+                                            <p className="mt-1 text-xs text-violet-700">Return: { order.returnStatus }</p>
+                                            { order.returnShippingCharge !== null && <p className="text-xs text-violet-700">Return courier charge: { money( order.returnShippingCharge ) } · Estimated refund: { money( order.returnRefundAmount || 0 ) }</p> }
+                                        </> }
                                     </td>
                                     <td className="p-3">
                                         <p className="font-medium">{ money( order.amount ) }</p>

@@ -38,6 +38,8 @@ export async function POST (
             const message = error.message.toLowerCase();
             if ( message.includes( 'order not found' ) )
                 return NextResponse.json( { error: 'Order not found.' }, { status: 404 } );
+            if ( message.includes( '12-hour cancellation window' ) )
+                return NextResponse.json( { error: 'The 12-hour cancellation window has ended. Please contact customer support for help.' }, { status: 409 } );
             if ( message.includes( 'can no longer be cancelled' ) )
                 return NextResponse.json( { error: 'This order has already been dispatched or completed and can no longer be cancelled.' }, { status: 409 } );
             if ( error.code === 'PGRST202' )

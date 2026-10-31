@@ -4,20 +4,10 @@ import Razorpay from 'razorpay';
 import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { bustProductCache } from '@/lib/data';
-import { checkoutCartSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
+import { checkoutCartSchema, checkoutShippingAddressSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { DelhiveryServiceError, getDelhiveryDeliveryEstimate } from '@/lib/delhivery/serviceability';
 import { z } from 'zod';
-
-const shippingAddressSchema = z.object( {
-    name: z.string().trim().min( 2 ).max( 120 ),
-    email: z.string().email().max( 255 ).optional(),
-    address: z.string().trim().min( 4 ).max( 300 ),
-    city: z.string().trim().min( 1 ).max( 100 ),
-    postalCode: z.string().trim().regex( /^[0-9]{6}$/ ),
-    phone: z.string().trim().min( 7 ).max( 30 ),
-    country: z.string().trim().min( 1 ).max( 80 ).default( 'India' ),
-} );
 
 function secureCompare ( first: string, second: string ): boolean
 {
@@ -62,7 +52,7 @@ export async function POST ( request: NextRequest )
 
         const body = await request.json();
         const cart = checkoutCartSchema.safeParse( body.cartItems );
-        const address = shippingAddressSchema.safeParse( body.shippingAddress );
+        const address = checkoutShippingAddressSchema.safeParse( body.shippingAddress );
         if ( !cart.success ) return NextResponse.json( { error: 'Your cart is invalid. Refresh it and try again.' }, { status: 400 } );
         if ( !address.success ) return NextResponse.json( { error: 'Enter a valid delivery address.' }, { status: 400 } );
         if ( body.paymentMethod !== 'cod' && body.paymentMethod !== 'razorpay' )

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { enforceRateLimit } from '@/lib/rate-limit';
+import { DelhiveryServiceError, getDelhiveryReturnShippingCharge } from '@/lib/delhivery/serviceability';
 
 const returnSchema = z.object( {
     reason: z.string().trim().min( 5 ).max( 500 ),
@@ -48,11 +49,26 @@ export async function POST (
     try
     {
         const db = getSupabaseAdmin();
+        const { data: order, error: orderError } = await db.from( 'orders' )
+            .select( 'shipping_address' )
+            .eq( 'id', id )
+            .eq( 'user_id', user.id )
+            .maybeSingle();
+        if ( orderError ) throw orderError;
+        if ( !order ) return NextResponse.json( { error: 'Order not found.' }, { status: 404 } );
+
+        const shippingAddress = order.shipping_address as { postalCode?: string } | null;
+        const customerPincode = shippingAddress?.postalCode;
+        if ( !customerPincode || !/^[0-9]{6}$/.test( customerPincode ) )
+            return NextResponse.json( { error: 'The delivery PIN code on this order is invalid. Contact support for a return.' }, { status: 409 } );
+        const returnShippingCharge = await getDelhiveryReturnShippingCharge( customerPincode );
+
         const { data, error } = await db.rpc( 'request_customer_return', {
             p_order_id: id,
             p_user_id: user.id,
             p_reason: parsed.data.reason,
             p_item_indexes: parsed.data.itemIndexes,
+            p_return_shipping_charge: returnShippingCharge,
         } );
         if ( error )
         {
@@ -66,7 +82,7 @@ export async function POST (
             if ( message.includes( 'return request already exists' ) )
                 return NextResponse.json( { error: 'A return request already exists for this order.' }, { status: 409 } );
             if ( error.code === 'PGRST202' )
-                return NextResponse.json( { error: 'Return setup is incomplete. Apply supabase/migrations/0012_customer_returns.sql in the Supabase SQL Editor.' }, { status: 503 } );
+                return NextResponse.json( { error: 'Return setup is incomplete. Apply supabase/migrations/0020_return_courier_charge.sql after the existing migrations in the Supabase SQL Editor.' }, { status: 503 } );
             throw error;
         }
 
@@ -75,9 +91,12 @@ export async function POST (
             success: true,
             returnStatus: result?.return_status,
             refundAmount: Number( result?.return_refund_amount || 0 ),
+            returnShippingCharge: Number( result?.return_shipping_charge || 0 ),
         } );
     } catch ( error )
     {
+        if ( error instanceof DelhiveryServiceError )
+            return NextResponse.json( { error: 'The return courier charge is temporarily unavailable. Please try again.' }, { status: 503 } );
         console.error( 'Customer return request failed:', error );
         return NextResponse.json( { error: 'Could not submit your return request. Please try again or contact support.' }, { status: 500 } );
     }

@@ -39,6 +39,9 @@ Apply the Supabase migrations in order before using admin product editing, check
 16. `supabase/migrations/0016_archive_existing_admin_orders.sql`
 17. `supabase/migrations/0017_delhivery_sandbox_submission.sql`
 18. `supabase/migrations/0018_courier_submission_audit.sql`
+19. `supabase/migrations/0019_api_rate_limits.sql`
+20. `supabase/migrations/0020_return_courier_charge.sql`
+21. `supabase/migrations/0021_customer_cancellation_window.sql`
 
 `0002` adds the product metadata required by the admin form, `0003` enables atomic stock deduction, and `0004` adds saved customer addresses, user-cart uniqueness/synchronization, order snapshots, profile policies, and customer-account indexes. Run each file in the Supabase SQL Editor for the same project used by the app. The migrations are additive and preserve existing profiles and orders.
 
@@ -56,7 +59,9 @@ Apply the Supabase migrations in order before using admin product editing, check
 
 `0011` adds safe pre-dispatch order cancellation for customers and admins. It restores ordered variant stock atomically and prevents cancellation after dispatch. Online payment refunds are not automatic; after processing a refund in Razorpay, an admin can mark the payment as refunded in **Admin → Orders**.
 
-`0012` adds customer return requests for selected products within 48 hours of delivery, records checkout policy acceptance and delivery time, and adds admin review/receipt/refund tracking. A ₹35 handling deduction applies once per return parcel, regardless of how many selected products it contains; the original delivery charge is excluded from the refund. Admins must receive and inspect the return before manually processing and marking the refund complete. Show the return policy clearly and have it reviewed for applicable consumer-protection requirements before launch.
+`0021` limits customer self-service order cancellation to 12 hours after the order is placed. The restriction is enforced in the atomic cancellation function; admin cancellation remains available. The customer order page displays the cancellation deadline and directs customers to support after the window closes.
+
+`0012` adds customer return requests for selected products within 48 hours of delivery, records checkout policy acceptance and delivery time, and adds admin review/receipt/refund tracking. `0020` adds a return courier charge quoted from Delhivery's rate-check endpoint using the reverse PIN-code route; that quoted amount is deducted from the refund and stored on the order. The quote uses the configured default chargeable parcel weight and may differ from the final carrier charge if the collected parcel's measured weight or dimensions differ. The original forward delivery charge is not refundable. Admins must receive and inspect the return before manually processing and marking the refund complete.
 
 `0013` adds the minimum courier status, status timestamp, shipment creation timestamp, and actual courier charge fields to the existing Supabase `orders` table. It powers **Admin → Courier & Billing** and customer order tracking. Apply it after `0012` in the same Supabase project. Courier status is read-only in the admin UI; shipment creation and carrier scans are not connected until the account's official API workflow has been verified. Profit/loss remains unavailable until historical product cost is safely snapshotted per order; the dashboard does not substitute current catalog cost or guess courier fees.
 
@@ -116,6 +121,6 @@ The first command is a read-only dry run. Review the reported counts before the 
 - Sensitive application endpoints also use shared server-side rate limits backed by Supabase Postgres. Apply `supabase/migrations/0019_api_rate_limits.sql` in the Supabase SQL Editor before deploying code that uses these limits. Requests over the configured limit receive HTTP 429; if the limiter database is unavailable, protected actions fail closed with HTTP 503.
 - Signed-in carts and wishlists are stored against the authenticated user in Postgres and merged with the browser's guest cart after login. Guest carts remain local to the browser until login; customer data is never selected by a client-supplied user ID.
 - Checkout re-reads product and variant prices on the server and creates immutable purchase snapshots. Guest checkout remains available. Orders made while signed in are linked to that account.
-- Cancellation/return/refund eligibility is not exposed to customers because the existing application has no defined customer-facing cancellation or return policy/action.
+- Customer return requests require the 48-hour return policy and use the courier API's reverse-route rate quote to show and deduct an estimated return shipping charge. Refunds are manually processed after the returned items are received and inspected.
 
 Required account environment values are the existing Supabase URL/publishable key/service-role key and `NEXT_PUBLIC_SITE_URL`. Keep `SUPABASE_SERVICE_ROLE_KEY` server-only. For Razorpay checkout, configure `NEXT_PUBLIC_RAZORPAY_KEY_ID`, `RAZORPAY_KEY_ID`, and `RAZORPAY_KEY_SECRET`.

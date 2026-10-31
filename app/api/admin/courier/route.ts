@@ -12,7 +12,7 @@ export async function GET ()
         const since = new Date();
         since.setDate( since.getDate() - 30 );
         const db = getSupabaseAdmin();
-        const selection = 'id, order_number, created_at, order_status, payment_status, payment_method, final_amount, total_amount, shipping_cost, courier_name, tracking_number, courier_status, courier_status_updated_at, courier_shipping_charge, courier_dispatch_queued, courier_api_submission_state, courier_api_submission_error, courier_package_weight_g, shipping_address, user_email, email, items, return_status, return_refund_amount';
+        const selection = 'id, order_number, created_at, order_status, payment_status, payment_method, final_amount, total_amount, shipping_cost, courier_name, tracking_number, courier_status, courier_status_updated_at, courier_shipping_charge, courier_dispatch_queued, courier_api_submission_state, courier_api_submission_error, courier_package_weight_g, shipping_address, user_email, email, items, return_status, return_refund_amount, return_shipping_charge';
         const [ { data, error }, { data: queuedData, error: queuedError, count: queuedCount } ] = await Promise.all( [
             db.from( 'orders' )
                 .select( selection )
@@ -68,6 +68,7 @@ export async function GET ()
                 : 0,
             returnStatus: order.return_status,
             returnRefundAmount: order.return_refund_amount === null ? null : Number( order.return_refund_amount ),
+            returnShippingCharge: order.return_shipping_charge === null ? null : Number( order.return_shipping_charge ),
         } );
         const orders = ( data || [] ).map( mapOrder );
         const queuedOrders = ( queuedData || [] ).map( mapOrder );

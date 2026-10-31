@@ -218,24 +218,43 @@ function extractNumericField ( value: unknown, fields: string[] ): number | null
 async function getDelhiveryShippingCharge (
     paymentType: 'COD' | 'Pre-paid',
     pincode: string,
-    chargeableWeightGrams: number
+    chargeableWeightGrams: number,
+    originPincode?: string
 ): Promise<number>
 {
     const config = getDelhiveryConfig();
-    if ( !config.originPincode || !/^[0-9]{6}$/.test( config.originPincode ) )
+    const origin = originPincode || config.originPincode;
+    if ( !origin || !/^[0-9]{6}$/.test( origin ) || !/^[0-9]{6}$/.test( pincode ) )
         throw new DelhiveryServiceError();
 
     const url = new URL( '/api/kinko/v1/invoice/charges/.json', config.apiBaseUrl );
     url.searchParams.set( 'md', 'S' );
     url.searchParams.set( 'ss', 'Delivered' );
     url.searchParams.set( 'd_pin', pincode );
-    url.searchParams.set( 'o_pin', config.originPincode );
+    url.searchParams.set( 'o_pin', origin );
     url.searchParams.set( 'cgm', String( chargeableWeightGrams ) );
     url.searchParams.set( 'pt', paymentType );
     const response = await fetchDelhiveryJson( url, config.apiToken );
     const amount = extractNumericField( response, [ 'total_amount', 'total_charge', 'totalCharge', 'amount' ] );
     if ( amount === null ) throw new DelhiveryServiceError();
     return Math.round( amount * 100 ) / 100;
+}
+
+export async function getDelhiveryReturnShippingCharge (
+    customerPincode: string,
+    chargeableWeightGrams?: number
+): Promise<number>
+{
+    const config = getDelhiveryConfig();
+    const weight = chargeableWeightGrams ?? config.defaultChargeableWeightGrams;
+    if ( !config.originPincode || !/^[0-9]{6}$/.test( config.originPincode ) ||
+        !/^[0-9]{6}$/.test( customerPincode ) ||
+        !Number.isSafeInteger( weight ) || weight < 1 || weight > 100000 )
+    {
+        throw new DelhiveryServiceError();
+    }
+
+    return getDelhiveryShippingCharge( 'Pre-paid', config.originPincode, weight, customerPincode );
 }
 
 async function getExpectedDeliveryDays ( pincode: string ): Promise<number>

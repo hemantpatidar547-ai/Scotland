@@ -203,7 +203,15 @@ export default function Checkout ()
         return data;
     }
 
-    async function makePayment ( shippingAddress: any )
+    async function makePayment ( shippingAddress: {
+        name: string;
+        email: string;
+        address: string;
+        city: string;
+        postalCode: string;
+        phone: string;
+        country: 'India';
+    } )
     {
         const res = await initializeRazorpay();
         if ( !res )
@@ -225,7 +233,7 @@ export default function Checkout ()
                         color: item.color,
                         quantity: item.quantity,
                     } ) ),
-                    pincode: shippingAddress.postalCode,
+                    shippingAddress,
                 } )
             } ).then( response => response.json() );
 
@@ -293,9 +301,11 @@ export default function Checkout ()
         }
     }
 
-    async function submit ( e: FormEvent )
+    async function submit ( e: FormEvent<HTMLFormElement> )
     {
         e.preventDefault();
+        const form = e.currentTarget;
+        if ( !form.reportValidity() ) return;
 
         const selectedDelivery = paymentMethod === 'cod' ? deliveryCheck?.cod : deliveryCheck?.prepaid;
         if ( deliveryCheckStatus === 'error' || deliveryCheck?.status !== 'available' ||
@@ -328,16 +338,27 @@ export default function Checkout ()
             return;
         }
 
-        const fd = new FormData( e.target as HTMLFormElement );
+        const fd = new FormData( form );
         const shippingAddress = {
             name: `${ fd.get( 'firstName' ) } ${ fd.get( 'lastName' ) }`.trim(),
-            email: fd.get( 'email' ),
-            address: fd.get( 'address' ),
-            city: city, // from state
+            email: String( fd.get( 'email' ) || '' ).trim(),
+            address: String( fd.get( 'address' ) || '' ).trim(),
+            city: city.trim(),
             postalCode: pincode,
-            phone: fd.get( 'phone' ),
-            country: 'India'
+            phone: String( fd.get( 'phone' ) || '' ).replace( /\D/g, '' ),
+            country: 'India' as const,
         };
+
+        if ( shippingAddress.name.length < 2 ||
+            !shippingAddress.email ||
+            shippingAddress.address.length < 4 ||
+            !shippingAddress.city ||
+            !/^\d{6}$/.test( shippingAddress.postalCode ) ||
+            !/^\d{10}$/.test( shippingAddress.phone ) )
+        {
+            alert( 'Please complete every delivery field with valid information before placing your order.' );
+            return;
+        }
 
         if ( paymentMethod === 'razorpay' )
         {
@@ -462,7 +483,7 @@ export default function Checkout ()
                         <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-zinc-600">
                             <li>You may cancel before the order is dispatched.</li>
                             <li>Request a return within 48 hours of delivery. The return window starts when the order is marked delivered.</li>
-                            <li>A ₹35 return handling fee is deducted once per return parcel, even when it contains multiple products. The original delivery charge is not refundable.</li>
+                            <li>The return courier charge is checked using the courier rate API and deducted from your refund. The original delivery charge is not refundable; the return charge and estimated refund are shown before you submit a return.</li>
                             <li>Refund is processed after the returned product is received and checked. Online refunds are handled manually by the store; COD refunds are arranged by customer support.</li>
                         </ul>
                         <label className="mt-4 flex items-start gap-2 text-sm">

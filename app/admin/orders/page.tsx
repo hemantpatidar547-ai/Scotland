@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import BillingActions from '@/components/admin/BillingActions';
+import CashfreePaymentManagement from '@/components/admin/CashfreePaymentManagement';
 
 type Order = {
     _id: string;
@@ -290,7 +291,11 @@ export default function AdminOrders ()
     {
         const order = orders.find( item => item._id === orderId );
         if ( !order || order.returnStatus === status ) return;
-        if ( status === 'refunded' && !window.confirm( `Confirm you have completed the ₹${ Number( order.returnRefundAmount || 0 ).toLocaleString( 'en-IN' ) } refund outside this dashboard before marking it refunded.` ) ) return;
+        if ( status === 'refunded' && !window.confirm(
+            order.paymentMethod === 'cashfree'
+                ? 'Mark this return as processed? This does not confirm the Cashfree payment refund; initiate or verify it in Cashfree payment management.'
+                : `Confirm you have completed the ₹${ Number( order.returnRefundAmount || 0 ).toLocaleString( 'en-IN' ) } refund outside this dashboard before marking it refunded.`
+        ) ) return;
 
         const previousStatus = order.returnStatus;
         const previousPaymentStatus = order.paymentStatus;
@@ -298,7 +303,7 @@ export default function AdminOrders ()
             item._id === orderId ? {
                 ...item,
                 returnStatus: status,
-                paymentStatus: status === 'refunded' ? 'refunded' : item.paymentStatus,
+                paymentStatus: status === 'refunded' && item.paymentMethod !== 'cashfree' ? 'refunded' : item.paymentStatus,
             } : item
         ) );
         setUpdatingOrderIds( currentIds => new Set( currentIds ).add( orderId ) );
@@ -621,17 +626,20 @@ export default function AdminOrders ()
                                                     <select
                                                         value={ order.paymentStatus || 'pending' }
                                                         onChange={ event => void updatePaymentStatus( order._id, event.target.value ) }
-                                                        disabled={ updatingOrderIds.has( order._id ) }
+                                                        disabled={ updatingOrderIds.has( order._id ) || order.paymentMethod === 'cashfree' }
                                                         className="text-xs font-semibold normal-case tracking-normal border border-stone rounded px-3 py-1.5 outline-none cursor-pointer focus:border-navy capitalize disabled:opacity-60"
                                                     >
                                                         <option value="pending">Pending</option>
                                                         <option value="paid">Paid</option>
                                                         <option value="failed">Failed</option>
+                                                        <option value="refund_required">Refund required</option>
+                                                        <option value="partially_refunded">Partially refunded</option>
                                                         <option value="refunded">Refunded</option>
                                                     </select>
                                                 </label>
-                                                { order.orderStatus === 'cancelled' && order.paymentStatus === 'paid' && (
-                                                    <span className="max-w-48 text-right text-[10px] leading-4 text-amber-700">Online refund is still pending; update this after refunding in Razorpay.</span>
+                                                { order.paymentMethod === 'cashfree' && <span className="max-w-52 text-right text-[10px] leading-4 text-zinc-500">Payment status is verified by Cashfree. Use payment management below for refunds.</span> }
+                                                { order.orderStatus === 'cancelled' && order.paymentStatus === 'paid' && order.paymentMethod !== 'cashfree' && (
+                                                    <span className="max-w-48 text-right text-[10px] leading-4 text-amber-700">Online refund is pending; process it with your payment provider before updating this status.</span>
                                                 ) }
                                                 { order.returnStatus && (
                                                     <div className="w-52 border-t border-stone pt-2 text-right">
@@ -653,6 +661,8 @@ export default function AdminOrders ()
                                                         { order.returnStatus === 'refunded' && <p className="mt-1 text-xs text-emerald-700">Refund marked complete</p> }
                                                     </div>
                                                 ) }
+
+                                                { order.paymentMethod === 'cashfree' && <CashfreePaymentManagement orderId={ order._id } /> }
 
                                                 <button
                                                     onClick={ () => setExpandedId( expandedId === order._id ? null : order._id ) }

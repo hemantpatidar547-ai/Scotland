@@ -211,7 +211,7 @@ export async function PATCH ( req: NextRequest )
         if ( returnStatus )
         {
             const { data: order, error: readError } = await db.from( 'orders' )
-                .select( 'return_status, return_item_indexes, items' )
+                .select( 'return_status, return_item_indexes, items, payment_method' )
                 .eq( 'id', orderId )
                 .maybeSingle();
             if ( readError ) throw readError;
@@ -232,7 +232,8 @@ export async function PATCH ( req: NextRequest )
             const isFullOrderReturn = Array.isArray( order.return_item_indexes ) &&
                 Array.isArray( order.items ) &&
                 order.return_item_indexes.length === order.items.length;
-            if ( returnStatus === 'refunded' && isFullOrderReturn ) returnUpdate.payment_status = 'refunded';
+            if ( returnStatus === 'refunded' && isFullOrderReturn && order.payment_method !== 'cashfree' )
+                returnUpdate.payment_status = 'refunded';
             const { data, error } = await db.from( 'orders' )
                 .update( returnUpdate )
                 .eq( 'id', orderId )
@@ -268,17 +269,30 @@ export async function PATCH ( req: NextRequest )
         if ( paymentStatus === 'refunded' )
         {
             const { data: order, error: readError } = await db.from( 'orders' )
-                .select( 'order_status, return_status' )
+                .select( 'order_status, return_status, payment_method' )
                 .eq( 'id', orderId )
                 .maybeSingle();
             if ( readError ) throw readError;
             if ( !order ) return NextResponse.json( { error: 'Order not found.' }, { status: 404 } );
+            if ( order.payment_method === 'cashfree' )
+                return NextResponse.json( { error: 'Cashfree refund status is updated only after provider confirmation. Use Cashfree payment management to initiate a refund.' }, { status: 409 } );
             if ( order.return_status !== 'received' && order.order_status !== 'cancelled' )
                 return NextResponse.json( { error: 'Only mark a return refund after the returned product is received, or a cancelled prepaid order has been refunded.' }, { status: 409 } );
         }
 
         const upd: Record<string, string> = { updated_at: new Date().toISOString() };
-        if ( paymentStatus ) upd.payment_status = paymentStatus;
+        if ( paymentStatus )
+        {
+            const { data: order, error: readError } = await db.from( 'orders' )
+                .select( 'payment_method' )
+                .eq( 'id', orderId )
+                .maybeSingle();
+            if ( readError ) throw readError;
+            if ( !order ) return NextResponse.json( { error: 'Order not found.' }, { status: 404 } );
+            if ( order.payment_method === 'cashfree' )
+                return NextResponse.json( { error: 'Cashfree payment status is updated only after provider verification.' }, { status: 409 } );
+            upd.payment_status = paymentStatus;
+        }
 
         const updateQuery = db.from( 'orders' ).update( upd ).eq( 'id', orderId );
         const { data, error } = await updateQuery.select( 'id' ).maybeSingle();

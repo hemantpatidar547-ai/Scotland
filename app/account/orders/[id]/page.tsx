@@ -61,7 +61,9 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
             { order.order_status === 'cancelled' ? (
                 <div className="mt-8 rounded border border-red-200 bg-red-50 p-4 text-red-800">
                     <p>This order has been cancelled.</p>
-                    { order.payment_method !== 'cod' && order.payment_status === 'paid' && <p className="mt-2 text-sm">Your online payment is still marked as paid. The store admin must process the refund manually; it is not automatic.</p> }
+                    { order.payment_method === 'cashfree' && order.payment_status === 'refund_required' && <p className="mt-2 text-sm">Your Cashfree refund is being processed and will show as refunded after Cashfree confirms it.</p> }
+                    { order.payment_method === 'cashfree' && order.payment_status === 'paid' && <p className="mt-2 text-sm">Your Cashfree payment is still confirmed as paid. Contact the store if you expected a refund.</p> }
+                    { order.payment_method !== 'cod' && order.payment_method !== 'cashfree' && order.payment_status === 'paid' && <p className="mt-2 text-sm">Your online payment is still marked as paid. The store admin must process the refund manually; it is not automatic.</p> }
                 </div>
             ) : (
                 <div className="mt-8 grid gap-3 sm:grid-cols-5">

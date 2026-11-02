@@ -222,26 +222,52 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
     useEffect( () =>
     {
         if ( !accountId ) return;
+        let refreshing = false;
+        let active = true;
+        let activeController: AbortController | null = null;
         const refreshAccountState = async () =>
         {
+            if ( refreshing ) return;
+            refreshing = true;
+            const controller = new AbortController();
+            activeController = controller;
+            const timeout = window.setTimeout( () => controller.abort(), 10000 );
             try
             {
-                const response = await fetch( '/api/account/store', { cache: 'no-store' } );
+                const response = await fetch( '/api/account/store', {
+                    cache: 'no-store',
+                    signal: controller.signal,
+                } );
                 if ( response.status === 401 )
                 {
-                    setAccountId( null );
+                    if ( active ) setAccountId( null );
                     return;
                 }
-                if ( !response.ok ) return;
+                if ( !response.ok )
+                {
+                    console.warn( `Could not refresh the cross-device shopping session (HTTP ${ response.status }).` );
+                    return;
+                }
                 const result = await response.json();
-                applyAccountState( result.data as StoredAccountState );
+                if ( active ) applyAccountState( result.data as StoredAccountState );
             } catch ( error )
             {
-                console.error( 'Could not refresh the cross-device shopping session:', error );
+                if ( error instanceof DOMException && error.name === 'AbortError' ) return;
+                console.warn( 'Could not refresh the cross-device shopping session. The current cart remains available.', error );
+            } finally
+            {
+                window.clearTimeout( timeout );
+                refreshing = false;
+                if ( activeController === controller ) activeController = null;
             }
         };
         window.addEventListener( 'focus', refreshAccountState );
-        return () => window.removeEventListener( 'focus', refreshAccountState );
+        return () =>
+        {
+            active = false;
+            activeController?.abort();
+            window.removeEventListener( 'focus', refreshAccountState );
+        };
     }, [ accountId, applyAccountState ] );
 
     const value = useMemo<Store>( () => ( {

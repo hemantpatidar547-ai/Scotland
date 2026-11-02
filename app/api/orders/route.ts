@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
-import Razorpay from 'razorpay';
 import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { bustProductCache } from '@/lib/data';
@@ -9,36 +8,6 @@ import { enforceRateLimit } from '@/lib/rate-limit';
 import { DelhiveryServiceError, getDelhiveryDeliveryEstimate } from '@/lib/delhivery/serviceability';
 import { getOrderControlStatus, OrderControlUnavailableError } from '@/lib/order-control';
 import { z } from 'zod';
-
-function secureCompare ( first: string, second: string ): boolean
-{
-    const firstBuffer = Buffer.from( first );
-    const secondBuffer = Buffer.from( second );
-    return firstBuffer.length === secondBuffer.length && crypto.timingSafeEqual( firstBuffer, secondBuffer );
-}
-
-async function validateRazorpayPayment (
-    orderId: string | undefined,
-    paymentId: string | undefined,
-    signature: string | undefined,
-    expectedAmount: number
-): Promise<boolean>
-{
-    const keyId = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    if ( !orderId || !paymentId || !signature || !keyId || !keySecret ) return false;
-
-    const expectedSignature = crypto.createHmac( 'sha256', keySecret )
-        .update( `${ orderId }|${ paymentId }` )
-        .digest( 'hex' );
-    if ( !secureCompare( expectedSignature, signature ) ) return false;
-
-    const razorpay = new Razorpay( { key_id: keyId, key_secret: keySecret } );
-    const payment = await razorpay.payments.fetch( paymentId );
-    return payment.order_id === orderId &&
-        payment.status === 'captured' &&
-        Number( payment.amount ) === Math.round( expectedAmount * 100 );
-}
 
 export async function POST ( request: NextRequest )
 {
@@ -63,7 +32,7 @@ export async function POST ( request: NextRequest )
         const address = checkoutShippingAddressSchema.safeParse( body.shippingAddress );
         if ( !cart.success ) return NextResponse.json( { error: 'Your cart is invalid. Refresh it and try again.' }, { status: 400 } );
         if ( !address.success ) return NextResponse.json( { error: 'Enter a valid delivery address.' }, { status: 400 } );
-        if ( body.paymentMethod !== 'cod' && body.paymentMethod !== 'razorpay' )
+        if ( body.paymentMethod !== 'cod' )
         {
             return NextResponse.json( { error: 'Choose a valid payment method.' }, { status: 400 } );
         }
@@ -97,27 +66,6 @@ export async function POST ( request: NextRequest )
             return NextResponse.json( { error: 'The order total is invalid. Please refresh your cart.' }, { status: 400 } );
         }
 
-        if ( body.paymentMethod === 'razorpay' )
-        {
-            let isValidPayment = false;
-            try
-            {
-                isValidPayment = await validateRazorpayPayment(
-                    body.razorpayOrderId,
-                    body.razorpayPaymentId,
-                    body.razorpaySignature,
-                    finalAmount
-                );
-            } catch ( error )
-            {
-                console.error( 'Razorpay payment validation failed:', error );
-            }
-            if ( !isValidPayment )
-            {
-                return NextResponse.json( { error: 'Payment could not be verified for this order amount. Contact support if your account was charged.' }, { status: 400 } );
-            }
-        }
-
         const orderNumber = `SC-${ Date.now() }-${ crypto.randomUUID().slice( 0, 8 ).toUpperCase() }`;
         const orderPayload = {
             order_number: orderNumber,
@@ -134,11 +82,8 @@ export async function POST ( request: NextRequest )
             final_amount: finalAmount,
             total_amount: finalAmount,
             payment_method: body.paymentMethod,
-            payment_status: body.paymentMethod === 'cod' ? 'pending' : 'paid',
-            razorpay_payment_id: body.paymentMethod === 'razorpay' ? body.razorpayPaymentId : null,
-            razorpay_order_id: body.paymentMethod === 'razorpay' ? body.razorpayOrderId : null,
-            razorpay_signature: body.paymentMethod === 'razorpay' ? body.razorpaySignature : null,
-            order_status: body.paymentMethod === 'cod' ? 'pending_payment' : 'paid',
+            payment_status: 'pending',
+            order_status: 'pending_payment',
         };
 
         const { data: createdOrders, error: orderError } = await db.rpc( 'create_customer_order', {

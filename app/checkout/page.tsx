@@ -2,10 +2,23 @@
 
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useState } from 'react';
+import { load as loadCashfree } from '@cashfreepayments/cashfree-js';
 import { useStore } from '@/components/StoreProvider';
 import { trackAnalyticsEvent } from '@/lib/analytics';
 
 const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 } ).format( n );
+const CASHFREE_CHECKOUT_DETAILS_KEY = 'scotland-cashfree-checkout-details';
+
+function clearSavedCashfreeCheckoutDetails ()
+{
+    try
+    {
+        localStorage.removeItem( CASHFREE_CHECKOUT_DETAILS_KEY );
+    } catch ( error )
+    {
+        console.warn( 'Could not clear temporarily saved Cashfree checkout details.', error );
+    }
+}
 
 type DeliveryMethodQuote = {
     available: boolean;
@@ -26,7 +39,7 @@ export default function Checkout ()
     const { cart, clearCart, isReady } = useStore();
     const router = useRouter();
     const [ done, setDone ] = useState( false );
-    const [ paymentMethod, setPaymentMethod ] = useState<'cod' | 'razorpay'>( 'cod' );
+    const [ paymentMethod, setPaymentMethod ] = useState<'cod' | 'cashfree'>( 'cod' );
     const [ loading, setLoading ] = useState( false );
     const [ mounted, setMounted ] = useState( false );
     const [ returnPolicyAccepted, setReturnPolicyAccepted ] = useState( false );
@@ -44,6 +57,8 @@ export default function Checkout ()
     const [ orderControlError, setOrderControlError ] = useState( '' );
     const [ checkingOrderControl, setCheckingOrderControl ] = useState( false );
     const [ pauseModalMessage, setPauseModalMessage ] = useState( '' );
+    const [ paymentNotice, setPaymentNotice ] = useState( '' );
+    const [ paymentPending, setPaymentPending ] = useState( false );
 
     // Pre-filled user data from session
     const [ userEmail, setUserEmail ] = useState( '' );
@@ -51,6 +66,7 @@ export default function Checkout ()
     const [ userLastName, setUserLastName ] = useState( '' );
     const [ userPhone, setUserPhone ] = useState( '' );
     const [ alternatePhone, setAlternatePhone ] = useState( '' );
+    const [ streetAddress, setStreetAddress ] = useState( '' );
 
     const subtotal = cart.reduce( ( a, x ) => a + ( x.product.salePrice || x.product.price ) * x.quantity, 0 );
     const freeDelivery = freeDeliveryOffer || subtotal >= 4000;
@@ -59,6 +75,33 @@ export default function Checkout ()
     useEffect( () =>
     {
         setMounted( true );
+        let restoredCheckoutDetails = false;
+        try
+        {
+            const savedDetails = localStorage.getItem( CASHFREE_CHECKOUT_DETAILS_KEY );
+            if ( savedDetails )
+            {
+                const details = JSON.parse( savedDetails ) as Record<string, unknown>;
+                const savedAt = typeof details.savedAt === 'number' ? details.savedAt : 0;
+                if ( Date.now() - savedAt < 24 * 60 * 60 * 1000 )
+                {
+                    restoredCheckoutDetails = true;
+                    if ( typeof details.email === 'string' ) setUserEmail( details.email );
+                    if ( typeof details.firstName === 'string' ) setUserFirstName( details.firstName );
+                    if ( typeof details.lastName === 'string' ) setUserLastName( details.lastName );
+                    if ( typeof details.phone === 'string' ) setUserPhone( details.phone );
+                    if ( typeof details.alternatePhone === 'string' ) setAlternatePhone( details.alternatePhone );
+                    if ( typeof details.address === 'string' ) setStreetAddress( details.address );
+                    if ( typeof details.postalCode === 'string' ) setPincode( details.postalCode );
+                    if ( typeof details.city === 'string' ) setCity( details.city );
+                }
+                else
+                    localStorage.removeItem( CASHFREE_CHECKOUT_DETAILS_KEY );
+            }
+        } catch ( error )
+        {
+            console.warn( 'Could not restore Cashfree checkout details.', error );
+        }
         // Auto-fill from authenticated session
         fetch( '/api/auth/session' )
             .then( r => r.json() )
@@ -67,9 +110,9 @@ export default function Checkout ()
                 if ( data.authenticated && data.user )
                 {
                     const u = data.user;
-                    if ( u.email ) setUserEmail( u.email );
-                    if ( u.mobile ) setUserPhone( u.mobile );
-                    if ( u.name )
+                    if ( !restoredCheckoutDetails && u.email ) setUserEmail( u.email );
+                    if ( !restoredCheckoutDetails && u.mobile ) setUserPhone( u.mobile );
+                    if ( !restoredCheckoutDetails && u.name )
                     {
                         const parts = u.name.trim().split( /\s+/ );
                         setUserFirstName( parts[ 0 ] || '' );
@@ -113,7 +156,7 @@ export default function Checkout ()
                     !availability.cod.available &&
                     availability.prepaid.available )
                 {
-                    setPaymentMethod( 'razorpay' );
+                    setPaymentMethod( 'cashfree' );
                 }
             } catch ( error )
             {
@@ -186,18 +229,6 @@ export default function Checkout ()
 
     if ( !mounted || !isReady ) return <main className="shell py-24 text-center"><p className="text-zinc-400">Loading checkout...</p></main>;
 
-    const initializeRazorpay = () =>
-    {
-        return new Promise( ( resolve ) =>
-        {
-            const script = document.createElement( 'script' );
-            script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-            script.onload = () => resolve( true );
-            script.onerror = () => resolve( false );
-            document.body.appendChild( script );
-        } );
-    };
-
     const handlePincodeChange = ( e: React.ChangeEvent<HTMLInputElement> ) =>
     {
         const val = e.target.value.replace( /\D/g, '' ).slice( 0, 6 ); // Only numbers
@@ -205,7 +236,7 @@ export default function Checkout ()
         setDeliveryCharge( freeDelivery ? 0 : null );
     };
 
-    async function submitOrderToBackend ( shippingAddress: any, razorpayData: any = null )
+    async function submitOrderToBackend ( shippingAddress: any )
     {
         const payload = {
             cartItems: cart.map( item => ( {
@@ -219,7 +250,6 @@ export default function Checkout ()
             paymentMethod,
             returnPolicyAccepted,
             couponDiscount: 0,
-            ...( razorpayData || {} )
         };
 
         const res = await fetch( '/api/orders', {
@@ -249,7 +279,7 @@ export default function Checkout ()
         return data;
     }
 
-    async function makePayment ( shippingAddress: {
+    async function makeCashfreePayment ( shippingAddress: {
         name: string;
         email: string;
         address: string;
@@ -260,19 +290,13 @@ export default function Checkout ()
         country: 'India';
     } )
     {
-        const res = await initializeRazorpay();
-        if ( !res )
-        {
-            alert( 'Razorpay SDK failed to load. Are you online?' );
-            return;
-        }
-
         try
         {
-            const data = await fetch( '/api/razorpay/create-order', {
+            const response = await fetch( '/api/cashfree/create-order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify( {
+                    checkoutKey: crypto.randomUUID(),
                     cartItems: cart.map( item => ( {
                         productId: item.product.id,
                         variantId: item.variantId,
@@ -281,74 +305,139 @@ export default function Checkout ()
                         quantity: item.quantity,
                     } ) ),
                     shippingAddress,
+                    returnPolicyAccepted,
                 } )
-            } ).then( response => response.json() );
+            } );
+            const data = await response.json();
 
-            if ( data.error )
+            if ( !response.ok )
             {
                 if ( data.code === 'ORDERS_PAUSED' ) setPauseModalMessage( data.error );
-                else alert( data.error );
+                else setPaymentNotice( data.error || 'Could not initialize Cashfree payment.' );
                 return;
             }
 
-            const options = {
-                key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
-                amount: data.amount,
-                currency: data.currency,
-                name: 'SCOTLAND',
-                description: 'Payment for your order',
-                order_id: data.id,
-                handler: async function ( response: any )
-                {
-                    const verifyResult = await fetch( '/api/razorpay/verify', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify( {
-                            razorpay_order_id: response.razorpay_order_id,
-                            razorpay_payment_id: response.razorpay_payment_id,
-                            razorpay_signature: response.razorpay_signature,
-                        } ),
-                    } ).then( t => t.json() );
+            if ( data.alreadyPaid )
+            {
+                setPaymentNotice( 'This payment is already confirmed. Opening your order history.' );
+                clearCart();
+                setTimeout( () => router.push( '/account/orders' ), 1000 );
+                return;
+            }
 
-                    if ( verifyResult.success )
-                    {
-                        try
-                        {
-                            await submitOrderToBackend( shippingAddress, {
-                                razorpayOrderId: response.razorpay_order_id,
-                                razorpayPaymentId: response.razorpay_payment_id,
-                                razorpaySignature: response.razorpay_signature,
-                            } );
-                            setDone( true );
-                            clearCart();
-                            setTimeout( () => router.push( '/account/orders' ), 1200 );
-                        } catch ( e )
-                        {
-                            if ( e instanceof Error && e.message === 'ORDERS_PAUSED' ) return;
-                            alert( 'Payment successful but order saving failed.' );
-                            console.error( e );
-                        }
-                    } else
-                    {
-                        alert( 'Payment verification failed.' );
-                    }
-                },
-                prefill: { name: shippingAddress.name, email: shippingAddress.email, contact: shippingAddress.phone },
-                theme: { color: '#0A192F' } // Navy color
-            };
+            if ( typeof data.paymentSessionId !== 'string' ||
+                ( data.mode !== 'sandbox' && data.mode !== 'production' ) )
+                throw new Error( 'Cashfree returned an invalid checkout session. Please try again.' );
 
-            const paymentObject = new ( window as any ).Razorpay( options );
-            paymentObject.open();
+            const cashfree = await loadCashfree( { mode: data.mode } );
+            if ( !cashfree )
+            {
+                setPaymentNotice( 'Cashfree Checkout could not be loaded. Please check your connection and try again.' );
+                return;
+            }
 
+            const checkoutResult = await cashfree.checkout( {
+                paymentSessionId: data.paymentSessionId,
+                redirectTarget: '_self',
+            } );
+            if ( checkoutResult?.error )
+                setPaymentNotice( checkoutResult.error.message || 'Cashfree could not start the payment. Please try again.' );
         } catch ( error )
         {
-            console.error( 'Payment failed', error );
-            alert( 'Something went wrong during payment initialization.' );
+            console.error( 'Cashfree checkout initialization failed:', error );
+            setPaymentNotice( error instanceof Error
+                ? `${ error.message } Your cart is unchanged; please try again.`
+                : 'Cashfree payment could not be started. Your cart is unchanged; please try again.' );
         } finally
         {
             setLoading( false );
         }
     }
+
+    useEffect( () =>
+    {
+        if ( !mounted ) return;
+        const orderId = new URLSearchParams( window.location.search ).get( 'cashfree_order_id' );
+        if ( !orderId ) return;
+
+        let active = true;
+        let attempts = 0;
+        let pollTimer: number | undefined;
+        const complete = ( status: string ) =>
+        {
+            if ( status === 'paid' )
+            {
+                setPaymentPending( false );
+                setDone( true );
+                clearCart();
+                clearSavedCashfreeCheckoutDetails();
+                window.history.replaceState( null, '', '/checkout' );
+                setTimeout( () => router.push( '/account/orders' ), 1200 );
+                return true;
+            }
+            if ( status === 'refund_required' )
+            {
+                setPaymentPending( false );
+                setPaymentNotice( 'Payment was received, but the order could not be confirmed. A refund has been initiated; your cart remains available.' );
+                window.history.replaceState( null, '', '/checkout' );
+                return true;
+            }
+            if ( status === 'failed' )
+            {
+                setPaymentPending( false );
+                setPaymentNotice( 'The payment did not complete. Your cart and checkout details are still available; you can try again.' );
+                window.history.replaceState( null, '', '/checkout' );
+                return true;
+            }
+            return false;
+        };
+        const scheduleRetry = () =>
+        {
+            if ( !active ) return;
+            setPaymentPending( true );
+            if ( attempts >= 120 )
+            {
+                setPaymentNotice( 'Payment is still processing. Checkout is paused to prevent a duplicate payment; refresh this page to check again or contact support.' );
+                return;
+            }
+            setPaymentNotice( 'Payment is still processing. We are checking Cashfree status; your cart remains unchanged.' );
+            pollTimer = window.setTimeout( () => void verifyPayment(), 5000 );
+        };
+        const verifyPayment = async () =>
+        {
+            attempts += 1;
+            try
+            {
+                const response = await fetch( '/api/cashfree/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify( { orderId } ),
+                } );
+                const result = await response.json();
+                if ( !response.ok ) throw new Error( result.error || 'We could not confirm the payment status yet.' );
+                if ( !active ) return;
+                if ( !complete( result.status ) ) scheduleRetry();
+            } catch ( error )
+            {
+                if ( !active ) return;
+                setPaymentNotice( error instanceof Error ? error.message : 'We could not confirm the payment status yet.' );
+                scheduleRetry();
+            } finally
+            {
+                if ( active ) setLoading( false );
+            }
+        };
+
+        setLoading( true );
+        setPaymentPending( true );
+        void verifyPayment();
+
+        return () =>
+        {
+            active = false;
+            if ( pollTimer !== undefined ) window.clearTimeout( pollTimer );
+        };
+    }, [ mounted, clearCart, router ] );
 
     async function submit ( e: FormEvent<HTMLFormElement> )
     {
@@ -440,10 +529,27 @@ export default function Checkout ()
             return;
         }
 
-        if ( paymentMethod === 'razorpay' )
+        if ( paymentMethod === 'cashfree' )
         {
+            try
+            {
+                localStorage.setItem( CASHFREE_CHECKOUT_DETAILS_KEY, JSON.stringify( {
+                    email: userEmail,
+                    firstName: userFirstName,
+                    lastName: userLastName,
+                    phone: userPhone,
+                    alternatePhone,
+                    address: streetAddress,
+                    postalCode: pincode,
+                    city,
+                    savedAt: Date.now(),
+                } ) );
+            } catch ( error )
+            {
+                console.warn( 'Could not temporarily save checkout details before Cashfree redirect.', error );
+            }
             setLoading( true );
-            await makePayment( shippingAddress );
+            await makeCashfreePayment( shippingAddress );
         } else
         {
             setLoading( true );
@@ -452,6 +558,7 @@ export default function Checkout ()
                 await submitOrderToBackend( shippingAddress );
                 setDone( true );
                 clearCart();
+                clearSavedCashfreeCheckoutDetails();
                 setTimeout( () => router.push( '/account/orders' ), 1200 );
             } catch ( err: any )
             {
@@ -480,6 +587,7 @@ export default function Checkout ()
                     Order availability could not be verified. New orders are disabled until the store status can be confirmed.
                 </p> }
                 { !orderControlReady && !orderControlError && <p className="mb-6 text-sm text-zinc-500" role="status">Checking whether orders are open…</p> }
+                { paymentNotice && <p className="mb-6 border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="status">{ paymentNotice }</p> }
 
                 <form noValidate onSubmit={ submit } className="space-y-7">
                     <section>
@@ -492,7 +600,7 @@ export default function Checkout ()
                         <div className="mt-3 grid gap-3 sm:grid-cols-2">
                             <input className="input" required name="firstName" placeholder="First name" pattern="[A-Za-z\s]+" title="Name should only contain letters" value={ userFirstName } onChange={ e => setUserFirstName( e.target.value ) } />
                             <input className="input" required name="lastName" placeholder="Last name" pattern="[A-Za-z\s]+" title="Name should only contain letters" value={ userLastName } onChange={ e => setUserLastName( e.target.value ) } />
-                            <input className="input sm:col-span-2" required name="address" placeholder="Address" />
+                            <input className="input sm:col-span-2" required name="address" placeholder="Address" value={ streetAddress } onChange={ event => setStreetAddress( event.target.value ) } />
 
                             <div className="relative">
                                 <input
@@ -559,12 +667,12 @@ export default function Checkout ()
                             <input disabled={ deliveryCheck?.status === 'available' && !deliveryCheck.cod.available } checked={ paymentMethod === 'cod' } onChange={ () => setPaymentMethod( 'cod' ) } type="radio" name="payment" />
                             <span className="font-medium">Cash on Delivery</span>
                         </label>
-                        <label className={ `mt-2 flex gap-3 border p-4 text-sm cursor-pointer ${ paymentMethod === 'razorpay' ? 'border-navy bg-white' : 'border-stone bg-white' } ${ deliveryCheck?.status === 'available' && !deliveryCheck.prepaid.available ? 'cursor-not-allowed opacity-50' : '' }` }>
-                            <input disabled={ deliveryCheck?.status === 'available' && !deliveryCheck.prepaid.available } checked={ paymentMethod === 'razorpay' } onChange={ () => setPaymentMethod( 'razorpay' ) } type="radio" name="payment" />
-                            <span className="font-medium">Online Payment (Razorpay)</span>
+                        <label className={ `mt-2 flex gap-3 border p-4 text-sm cursor-pointer ${ paymentMethod === 'cashfree' ? 'border-navy bg-white' : 'border-stone bg-white' } ${ deliveryCheck?.status === 'available' && !deliveryCheck.prepaid.available ? 'cursor-not-allowed opacity-50' : '' }` }>
+                            <input disabled={ deliveryCheck?.status === 'available' && !deliveryCheck.prepaid.available } checked={ paymentMethod === 'cashfree' } onChange={ () => setPaymentMethod( 'cashfree' ) } type="radio" name="payment" />
+                            <span className="font-medium">Online Payment (Cashfree)</span>
                         </label>
                         <p className="mt-2 text-xs text-zinc-500">
-                            { paymentMethod === 'razorpay' ? 'You will be redirected securely to Razorpay.' : 'Pay in cash when your order arrives.' }
+                            { paymentMethod === 'cashfree' ? 'You will be redirected securely to Cashfree Checkout.' : 'Pay in cash when your order arrives.' }
                         </p>
                     </section>
 
@@ -591,6 +699,7 @@ export default function Checkout ()
                     <button disabled={
                         !cart.length ||
                         loading ||
+                        paymentPending ||
                         checkingOrderControl ||
                         ( !orderPaused && (
                             !orderControlReady ||
@@ -600,7 +709,7 @@ export default function Checkout ()
                             !( paymentMethod === 'cod' ? deliveryCheck.cod.available : deliveryCheck.prepaid.available )
                         ) )
                     } className="button w-full disabled:opacity-40 transition flex justify-center items-center">
-                        { checkingOrderControl ? 'Checking order status…' : loading ? 'Processing...' : orderPaused ? 'View order pause message' : ( paymentMethod === 'razorpay' ? 'Pay Now securely' : 'Place order (COD)' ) }
+                        { checkingOrderControl ? 'Checking order status…' : loading ? 'Processing...' : paymentPending ? 'Payment confirmation pending…' : orderPaused ? 'View order pause message' : ( paymentMethod === 'cashfree' ? 'Pay Now securely' : 'Place order (COD)' ) }
                     </button>
                 </form>
 

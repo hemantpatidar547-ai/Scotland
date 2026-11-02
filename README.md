@@ -5,7 +5,7 @@ Multi-page Next.js App Router ecommerce foundation based on `scot.md`.
 ## Run locally
 
 1. Install Node 20+.
-2. Copy `.env.example` to `.env.local` and add Supabase/Razorpay credentials when ready.
+2. Copy `.env.example` to `.env.local` and add Supabase/Cashfree credentials when ready.
 3. Run `npm install`, then `npm run dev`.
 4. Open `http://localhost:3000`.
 
@@ -60,13 +60,15 @@ Apply the Supabase migrations in order before using admin product editing, check
 
 `0010` removes the bucket-specific file-size and MIME-type restrictions. Apply it after `0009` to use direct-to-Supabase signed image uploads without an application or bucket file-size cap. Supabase account/project limits and available storage still apply; set the project Storage limit in Supabase Dashboard to the largest value allowed by your plan. Uploads are restricted to image MIME types by the admin API, and SVG is rejected.
 
-`0011` adds safe pre-dispatch order cancellation for customers and admins. It restores ordered variant stock atomically and prevents cancellation after dispatch. Online payment refunds are not automatic; after processing a refund in Razorpay, an admin can mark the payment as refunded in **Admin → Orders**.
+`0011` adds safe pre-dispatch order cancellation for customers and admins. It restores ordered variant stock atomically and prevents cancellation after dispatch. Cashfree refunds are initiated and reconciled from **Admin → Orders**; payment status changes only after Cashfree confirms the refund.
 
 `0021` limits customer self-service order cancellation to 12 hours after the order is placed. The restriction is enforced in the atomic cancellation function; admin cancellation remains available. The customer order page displays the cancellation deadline and directs customers to support after the window closes.
 
 `0022` creates a private contact inquiry table. The storefront contact form stores the customer's name, 10-digit mobile number, message, and submission time; admins can review submissions in **Admin → Contact messages**. Apply this migration before deploying the contact form update.
 
-`0024` adds the global **Admin → Order Control** switch and customer pause message to the existing store settings. Apply it before deploying the order-control feature. When orders are paused, both the COD order-creation API and Razorpay order-creation API reject requests server-side before checking courier serviceability, creating a payment transaction, or reserving inventory. The checkout shows the published customer message, and existing orders remain unchanged.
+`0024` adds the global **Admin → Order Control** switch and customer pause message to the existing store settings. Apply it before deploying the order-control feature. When orders are paused, the COD order-creation API and Cashfree payment-order API reject requests server-side before checking courier serviceability or creating a payment transaction. The checkout shows the published customer message, and existing orders remain unchanged.
+
+`0025` adds Cashfree checkout-session, payment-attempt, webhook-event, and refund-history records while retaining old Razorpay columns for historical orders. It also adds atomic Cashfree order confirmation and refund reservation functions. Apply it after `0024` and before enabling Cashfree checkout. Stock is not reserved while a customer is in checkout, matching the existing behavior; if payment succeeds but inventory is no longer available or order control has been paused, the paid checkout is recorded as cancelled and a full Cashfree refund is initiated and reconciled through Cashfree.
 
 `0012` adds customer return requests for selected products within 48 hours of delivery, records checkout policy acceptance and delivery time, and adds admin review/receipt/refund tracking. `0020` adds a return courier charge quoted from Delhivery's rate-check endpoint using the reverse PIN-code route; that quoted amount is deducted from the refund and stored on the order. The quote uses the configured default chargeable parcel weight and may differ from the final carrier charge if the collected parcel's measured weight or dimensions differ. The original forward delivery charge is not refundable. Admins must receive and inspect the return before manually processing and marking the refund complete.
 
@@ -130,4 +132,4 @@ The first command is a read-only dry run. Review the reported counts before the 
 - Checkout re-reads product and variant prices on the server and creates immutable purchase snapshots. Guest checkout remains available. Orders made while signed in are linked to that account.
 - Customer return requests require the 48-hour return policy and use the courier API's reverse-route rate quote to show and deduct an estimated return shipping charge. Refunds are manually processed after the returned items are received and inspected.
 
-Required account environment values are the existing Supabase URL/publishable key/service-role key and `NEXT_PUBLIC_SITE_URL`. Keep `SUPABASE_SERVICE_ROLE_KEY` server-only. For Razorpay checkout, configure `NEXT_PUBLIC_RAZORPAY_KEY_ID`, `RAZORPAY_KEY_ID`, and `RAZORPAY_KEY_SECRET`.
+Required account environment values are the existing Supabase URL/publishable key/service-role key and `NEXT_PUBLIC_SITE_URL`. Keep `SUPABASE_SERVICE_ROLE_KEY` server-only. For Cashfree Standard Checkout, configure `CASHFREE_CLIENT_ID`, `CASHFREE_CLIENT_SECRET`, and `CASHFREE_ENV` (`sandbox` or `production`) in Vercel Environment Variables. Set `NEXT_PUBLIC_CASHFREE_MODE` to the same mode for the hosted checkout SDK; the secret must never use a `NEXT_PUBLIC_` prefix. Register `https://<your-domain>/api/webhooks/cashfree` in the Cashfree dashboard for payment and refund webhooks. Sandbox and production require their respective Cashfree credentials and the production domain must be whitelisted by Cashfree.

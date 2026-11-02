@@ -144,7 +144,8 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
                     <div class="address-text">
                         <strong>${ escapeHtml( shippingAddress.name || 'Customer' ) }</strong><br/>
                         ${ address }<br/>
-                        <strong>Phone:</strong> ${ escapeHtml( shippingAddress.phone || '—' ) }<br/>
+                        <strong>Primary phone:</strong> ${ escapeHtml( shippingAddress.phone || '—' ) }<br/>
+                        ${ shippingAddress.alternatePhone ? `<strong>Alternate phone:</strong> ${ escapeHtml( shippingAddress.alternatePhone ) }<br/>` : '' }
                         <strong>Email:</strong> ${ escapeHtml( order.userEmail || shippingAddress.email || '—' ) }
                     </div>
                 </div>
@@ -254,7 +255,8 @@ export default function BillingActions ( { order, onInvoiceGenerated }: { order:
             
             <div class="customer">
                 To: ${ escapeHtml( order.shippingAddress?.name || 'Customer' ) }<br/>
-                Ph: ${ escapeHtml( order.shippingAddress?.phone || '—' ) }
+                Primary Ph: ${ escapeHtml( order.shippingAddress?.phone || '—' ) }<br/>
+                ${ order.shippingAddress?.alternatePhone ? `Alternate Ph: ${ escapeHtml( order.shippingAddress.alternatePhone ) }` : '' }
             </div>
             
             <div class="divider"></div>

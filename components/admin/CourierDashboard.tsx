@@ -23,6 +23,7 @@ type CourierOrder = {
     courierPackageWeightG: number | null;
     customerName: string;
     customerPhone: string;
+    customerAlternatePhone: string;
     customerEmail: string;
     shippingAddress: {
         address?: string;
@@ -30,6 +31,7 @@ type CourierOrder = {
         state?: string;
         country?: string;
         postalCode?: string;
+        alternatePhone?: string;
     } | null;
     items: Array<{
         name: string;
@@ -41,6 +43,11 @@ type CourierOrder = {
     }>;
     itemCount: number;
     returnStatus: string | null;
+    returnItems: Array<{
+        name: string;
+        quantity: number;
+        amount: number;
+    }>;
     returnRefundAmount: number | null;
     returnShippingCharge: number | null;
 };
@@ -197,7 +204,7 @@ export default function CourierDashboard ()
     }
 
     const visibleOrders = ( dashboard?.data || [] ).filter( order =>
-        `${ order.orderNumber } ${ order.customerName } ${ order.customerPhone } ${ order.trackingNumber || '' }`
+        `${ order.orderNumber } ${ order.customerName } ${ order.customerPhone } ${ order.customerAlternatePhone } ${ order.trackingNumber || '' }`
             .toLowerCase()
             .includes( search.toLowerCase() )
     );
@@ -267,6 +274,7 @@ export default function CourierDashboard ()
                                 <div>
                                     <a className="font-semibold text-navy underline" href="/admin/orders">{ order.orderNumber }</a>
                                     <p className="mt-1 text-sm font-medium">{ order.customerName } · { order.customerPhone || 'No phone saved' }</p>
+                                    { order.customerAlternatePhone && <p className="text-xs text-zinc-600">Alternate phone: { order.customerAlternatePhone }</p> }
                                     { order.customerEmail && <p className="text-xs text-zinc-600">{ order.customerEmail }</p> }
                                     <p className="mt-1 text-xs text-zinc-600">
                                         {[ order.shippingAddress?.address, order.shippingAddress?.city, order.shippingAddress?.state, order.shippingAddress?.postalCode ]
@@ -397,7 +405,8 @@ export default function CourierDashboard ()
                                     <td className="p-3">
                                         <a className="font-semibold text-navy underline" href="/admin/orders">{ order.orderNumber }</a>
                                         <p className="mt-1">{ order.customerName }</p>
-                                        <p className="text-xs text-zinc-500">{ order.customerPhone || 'No phone saved' }</p>
+                                        <p className="text-xs text-zinc-500">Primary: { order.customerPhone || 'No phone saved' }</p>
+                                        { order.customerAlternatePhone && <p className="text-xs text-zinc-500">Alternate: { order.customerAlternatePhone }</p> }
                                     </td>
                                     <td className="p-3">
                                         <p>{ order.courierName || 'Courier not set' }</p>
@@ -410,7 +419,10 @@ export default function CourierDashboard ()
                                         { order.courierStatusUpdatedAt && <p className="mt-1 text-xs text-zinc-500">{ new Date( order.courierStatusUpdatedAt ).toLocaleString( 'en-IN' ) }</p> }
                                         { order.returnStatus && <>
                                             <p className="mt-1 text-xs text-violet-700">Return: { order.returnStatus }</p>
-                                            { order.returnShippingCharge !== null && <p className="text-xs text-violet-700">Return courier charge: { money( order.returnShippingCharge ) } · Estimated refund: { money( order.returnRefundAmount || 0 ) }</p> }
+                                            { order.returnItems.map( ( item, index ) => <p key={ `${ item.name }-${ index }` } className="text-xs text-violet-700">{ item.name } · Qty { item.quantity } · { money( item.amount ) }</p> ) }
+                                            { order.returnItems.length > 0 && <p className="text-xs text-violet-700">Products amount: { money( order.returnItems.reduce( ( total, item ) => total + item.amount, 0 ) ) }</p> }
+                                            { order.returnShippingCharge !== null && <p className="text-xs text-violet-700">Return charge deducted: −{ money( order.returnShippingCharge ) }</p> }
+                                            { order.returnRefundAmount !== null && <p className="text-xs font-semibold text-violet-700">Estimated amount to refund: { money( order.returnRefundAmount ) }</p> }
                                         </> }
                                     </td>
                                     <td className="p-3">

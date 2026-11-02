@@ -42,6 +42,9 @@ Apply the Supabase migrations in order before using admin product editing, check
 19. `supabase/migrations/0019_api_rate_limits.sql`
 20. `supabase/migrations/0020_return_courier_charge.sql`
 21. `supabase/migrations/0021_customer_cancellation_window.sql`
+22. `supabase/migrations/0022_contact_inquiries.sql`
+23. `supabase/migrations/0023_fixed_return_courier_charge.sql`
+24. `supabase/migrations/0024_order_control.sql`
 
 `0002` adds the product metadata required by the admin form, `0003` enables atomic stock deduction, and `0004` adds saved customer addresses, user-cart uniqueness/synchronization, order snapshots, profile policies, and customer-account indexes. Run each file in the Supabase SQL Editor for the same project used by the app. The migrations are additive and preserve existing profiles and orders.
 
@@ -60,6 +63,10 @@ Apply the Supabase migrations in order before using admin product editing, check
 `0011` adds safe pre-dispatch order cancellation for customers and admins. It restores ordered variant stock atomically and prevents cancellation after dispatch. Online payment refunds are not automatic; after processing a refund in Razorpay, an admin can mark the payment as refunded in **Admin → Orders**.
 
 `0021` limits customer self-service order cancellation to 12 hours after the order is placed. The restriction is enforced in the atomic cancellation function; admin cancellation remains available. The customer order page displays the cancellation deadline and directs customers to support after the window closes.
+
+`0022` creates a private contact inquiry table. The storefront contact form stores the customer's name, 10-digit mobile number, message, and submission time; admins can review submissions in **Admin → Contact messages**. Apply this migration before deploying the contact form update.
+
+`0024` adds the global **Admin → Order Control** switch and customer pause message to the existing store settings. Apply it before deploying the order-control feature. When orders are paused, both the COD order-creation API and Razorpay order-creation API reject requests server-side before checking courier serviceability, creating a payment transaction, or reserving inventory. The checkout shows the published customer message, and existing orders remain unchanged.
 
 `0012` adds customer return requests for selected products within 48 hours of delivery, records checkout policy acceptance and delivery time, and adds admin review/receipt/refund tracking. `0020` adds a return courier charge quoted from Delhivery's rate-check endpoint using the reverse PIN-code route; that quoted amount is deducted from the refund and stored on the order. The quote uses the configured default chargeable parcel weight and may differ from the final carrier charge if the collected parcel's measured weight or dimensions differ. The original forward delivery charge is not refundable. Admins must receive and inspect the return before manually processing and marking the refund complete.
 

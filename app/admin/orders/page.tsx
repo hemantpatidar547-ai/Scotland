@@ -19,8 +19,13 @@ type Order = {
     tax: number;
     returnStatus: string | null;
     returnReason: string | null;
-    returnItems: string[];
+    returnItems: Array<{
+        name: string;
+        quantity: number;
+        amount: number;
+    }>;
     returnRefundAmount: number | null;
+    returnShippingCharge: number | null;
     returnRequestedAt: string | null;
     shippingAddress: any;
     items: any[];
@@ -536,6 +541,7 @@ export default function AdminOrders ()
                                         <td className="p-4">
                                             <p className="font-semibold">{ order.shippingAddress?.name }</p>
                                             <p className="text-xs text-zinc-600 font-mono mt-1">{ order.shippingAddress?.phone }</p>
+                                            { order.shippingAddress?.alternatePhone && <p className="text-xs text-zinc-600 font-mono mt-1">Alt: { order.shippingAddress.alternatePhone }</p> }
                                             <p className="text-xs text-navy mt-1 truncate max-w-[200px]">{ order.userEmail }</p>
                                             <p className="text-xs font-semibold text-zinc-500 mt-2">City: { order.shippingAddress?.city }</p>
                                         </td>
@@ -630,8 +636,13 @@ export default function AdminOrders ()
                                                 { order.returnStatus && (
                                                     <div className="w-52 border-t border-stone pt-2 text-right">
                                                         <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Return: { order.returnStatus }</p>
-                                                        { order.returnItems.length > 0 && <p className="mt-1 text-left text-[10px] leading-4 text-zinc-600">Products: { order.returnItems.join( ', ' ) }</p> }
-                                                        { order.returnRefundAmount !== null && <p className="mt-1 text-xs">Est. refund: { money( Number( order.returnRefundAmount || 0 ) ) }</p> }
+                                                        { order.returnItems.length > 0 && <>
+                                                            <p className="mt-1 text-left text-[10px] leading-4 text-zinc-600">Returned products:</p>
+                                                            { order.returnItems.map( ( item, index ) => <p key={ `${ item.name }-${ index }` } className="text-left text-[10px] leading-4 text-zinc-600">{ item.name } · Qty { item.quantity } · { money( item.amount ) }</p> ) }
+                                                            <p className="mt-1 text-xs">Products amount: { money( order.returnItems.reduce( ( total, item ) => total + item.amount, 0 ) ) }</p>
+                                                        </> }
+                                                        { order.returnShippingCharge !== null && <p className="mt-1 text-xs">Return charge deducted: −{ money( Number( order.returnShippingCharge ) ) }</p> }
+                                                        { order.returnRefundAmount !== null && <p className="mt-1 text-xs font-semibold">Estimated amount to refund: { money( Number( order.returnRefundAmount || 0 ) ) }</p> }
                                                         { order.returnReason && <p className="mt-1 text-left text-[10px] leading-4 text-zinc-600">Reason: { order.returnReason }</p> }
                                                         { order.returnStatus === 'requested' && <div className="mt-2 flex justify-end gap-2">
                                                             <button type="button" className="text-xs text-emerald-700 underline" disabled={ updatingOrderIds.has( order._id ) } onClick={ () => void updateReturnStatus( order._id, 'approved' ) }>Approve</button>
@@ -665,7 +676,8 @@ export default function AdminOrders ()
                                                             <h4 className="uppercase text-[10px] font-bold tracking-widest text-zinc-400 mb-3 border-b border-stone pb-2">Customer & Shipping Information</h4>
                                                             <div className="text-sm space-y-2">
                                                                 <p><span className="font-semibold w-24 inline-block text-zinc-500">Name:</span> { order.shippingAddress?.name }</p>
-                                                                <p><span className="font-semibold w-24 inline-block text-zinc-500">Mobile:</span> { order.shippingAddress?.phone }</p>
+                                                                <p><span className="font-semibold w-24 inline-block text-zinc-500">Primary mobile:</span> { order.shippingAddress?.phone }</p>
+                                                                { order.shippingAddress?.alternatePhone && <p><span className="font-semibold w-24 inline-block text-zinc-500">Alternate mobile:</span> { order.shippingAddress.alternatePhone }</p> }
                                                                 <p><span className="font-semibold w-24 inline-block text-zinc-500">Email:</span> { order.userEmail }</p>
                                                                 <p className="flex items-start">
                                                                     <span className="font-semibold w-24 inline-block text-zinc-500 shrink-0">Address:</span>

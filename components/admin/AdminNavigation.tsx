@@ -12,6 +12,7 @@ const navigation = [
             { href: '/admin/orders', label: 'Orders' },
             { href: '/admin/courier', label: 'Courier & billing' },
             { href: '/admin/customers', label: 'Customers' },
+            { href: '/admin/contact-messages', label: 'Contact messages' },
         ],
     },
     {

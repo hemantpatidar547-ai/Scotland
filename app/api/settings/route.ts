@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/ssr-server';
+import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
+import { DEFAULT_ORDER_PAUSE_MESSAGE } from '@/lib/order-control-shared';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,15 +9,23 @@ export async function GET ()
     try
     {
         const db = getSupabaseAdmin();
-        const { data: settings } = await db.from( 'settings' ).select( '*' ).eq( 'id', 'store' ).single();
+        const { data: settings, error } = await db.from( 'settings' )
+            .select( 'free_delivery, order_paused, order_pause_message' )
+            .eq( 'id', 'store' )
+            .maybeSingle();
+        if ( error ) throw error;
 
-        const freeDelivery = settings?.free_delivery ?? false;
         return NextResponse.json( {
-            freeDelivery,
-            deliveryCharge: freeDelivery ? 0 : 50,
-        } );
-    } catch
+            freeDelivery: settings?.free_delivery === true,
+            orderPaused: settings?.order_paused === true,
+            orderPauseMessage: settings?.order_pause_message || DEFAULT_ORDER_PAUSE_MESSAGE,
+        }, { headers: { 'Cache-Control': 'no-store, max-age=0' } } );
+    } catch ( error )
     {
-        return NextResponse.json( { freeDelivery: false, deliveryCharge: 50 } );
+        console.error( 'Store settings GET failed:', error );
+        return NextResponse.json(
+            { error: 'Store settings are temporarily unavailable. Please try again.' },
+            { status: 503, headers: { 'Cache-Control': 'no-store, max-age=0' } }
+        );
     }
 }

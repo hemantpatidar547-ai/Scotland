@@ -15,6 +15,7 @@ export const checkoutShippingAddressSchema = z.object( {
     city: z.string().trim().min( 1 ).max( 100 ),
     postalCode: z.string().trim().regex( /^[0-9]{6}$/ ),
     phone: z.string().trim().regex( /^[0-9]{10}$/ ),
+    alternatePhone: z.union( [ z.literal( '' ), z.string().trim().regex( /^[0-9]{10}$/ ) ] ).optional(),
     country: z.literal( 'India' ),
 } );
 

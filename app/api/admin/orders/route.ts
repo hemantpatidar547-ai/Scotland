@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { bustProductCache } from '@/lib/data';
+import { getReturnItems, type ReturnableItem } from '@/lib/returns';
 
 const VALID_PAYMENT_STATUSES = [ 'pending', 'paid', 'failed', 'refunded' ];
 const VALID_RETURN_STATUSES = [ 'approved', 'rejected', 'received', 'refunded' ];
@@ -47,7 +48,7 @@ export async function GET ( req: NextRequest )
 
         if ( search )
         {
-            const orString = 'order_number.ilike.%' + search + '%,user_email.ilike.%' + search + '%,shipping_address->>name.ilike.%' + search + '%,shipping_address->>phone.ilike.%' + search + '%';
+            const orString = 'order_number.ilike.%' + search + '%,user_email.ilike.%' + search + '%,shipping_address->>name.ilike.%' + search + '%,shipping_address->>phone.ilike.%' + search + '%,shipping_address->>alternatePhone.ilike.%' + search + '%';
             query = query.or( orString );
         }
 
@@ -78,10 +79,12 @@ export async function GET ( req: NextRequest )
             paymentStatus: o.payment_status,
             returnStatus: o.return_status,
             returnReason: o.return_reason,
-            returnItems: Array.isArray( o.return_item_indexes )
-                ? o.return_item_indexes.map( ( index: number ) => o.items?.[ index ]?.name || 'Product' )
-                : [],
+            returnItems: getReturnItems(
+                Array.isArray( o.items ) ? o.items as ReturnableItem[] : [],
+                Array.isArray( o.return_item_indexes ) ? o.return_item_indexes : []
+            ),
             returnRefundAmount: o.return_refund_amount,
+            returnShippingCharge: o.return_shipping_charge,
             returnRequestedAt: o.return_requested_at,
             shippingAddress: o.shipping_address,
             subtotal: o.subtotal,
@@ -99,7 +102,7 @@ export async function GET ( req: NextRequest )
             countQuery = countQuery.is( 'admin_archived_at', null );
             if ( search )
             {
-                const orString = 'order_number.ilike.%' + search + '%,user_email.ilike.%' + search + '%,shipping_address->>name.ilike.%' + search + '%,shipping_address->>phone.ilike.%' + search + '%';
+                const orString = 'order_number.ilike.%' + search + '%,user_email.ilike.%' + search + '%,shipping_address->>name.ilike.%' + search + '%,shipping_address->>phone.ilike.%' + search + '%,shipping_address->>alternatePhone.ilike.%' + search + '%';
                 countQuery = countQuery.or( orString );
             }
             if ( fromDate ) countQuery = countQuery.gte( 'created_at', fromDate );

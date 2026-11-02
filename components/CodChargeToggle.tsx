@@ -51,12 +51,12 @@ export function DeliveryChargeToggle ()
         <div className={ `border p-4 rounded flex items-center justify-between gap-4 ${ freeDelivery ? 'border-emerald-300 bg-emerald-50' : 'border-stone bg-white' }` }>
             <div>
                 <p className="text-sm font-semibold">
-                    { freeDelivery ? '🎉 Free Delivery Offer — Active' : '₹50 Delivery Charge — Active' }
+                    { freeDelivery ? '🎉 Free Delivery Offer — Active' : 'Courier-calculated delivery charge — Active' }
                 </p>
                 <p className="text-xs text-zinc-500 mt-0.5">
                     { freeDelivery
                         ? 'All orders get free delivery right now. Great for promotions & festivals!'
-                        : 'Customers pay ₹50 delivery charge on every order (COD + Online both).' }
+                        : 'Delivery charge is calculated at checkout using the delivery PIN code and selected payment method.' }
                 </p>
             </div>
             <button

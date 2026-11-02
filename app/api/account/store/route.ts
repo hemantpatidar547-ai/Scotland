@@ -107,12 +107,22 @@ async function syncCart (
     if ( error ) throw error;
 }
 
-function isMissingCartSyncMigration ( error: unknown ): boolean
+function getDatabaseError ( error: unknown ): { code: string; message: string }
 {
-    if ( !error || typeof error !== 'object' ) return false;
-    const databaseError = error as { code?: string; message?: string };
-    return databaseError.code === 'PGRST202' &&
-        ( databaseError.message || '' ).toLowerCase().includes( 'sync_customer_cart' );
+    if ( error instanceof Error ) return { code: '', message: error.message };
+    if ( !error || typeof error !== 'object' ) return { code: '', message: '' };
+    const databaseError = error as { code?: unknown; message?: unknown };
+    return {
+        code: typeof databaseError.code === 'string' ? databaseError.code : '',
+        message: typeof databaseError.message === 'string' ? databaseError.message : '',
+    };
+}
+
+function isMissingCartDatabaseSetup ( error: unknown ): boolean
+{
+    const { code, message } = getDatabaseError( error );
+    return code === 'PGRST202' && message.toLowerCase().includes( 'sync_customer_cart' ) ||
+        code === '42P01' || code === 'PGRST204' || code === 'PGRST205';
 }
 
 async function syncWishlist (
@@ -182,14 +192,14 @@ export async function POST ( request: NextRequest )
     } catch ( error )
     {
         console.error( 'Guest store merge failed:', error );
-        if ( isMissingCartSyncMigration( error ) )
+        if ( isMissingCartDatabaseSetup( error ) )
         {
             return NextResponse.json(
                 { error: 'Saved cart database setup is incomplete. Run supabase/migrations/0004_customer_accounts.sql in the Supabase SQL Editor.' },
                 { status: 503 }
             );
         }
-        const message = error instanceof Error ? error.message : '';
+        const { message } = getDatabaseError( error );
         const outOfStock = message.toLowerCase().includes( 'stock' ) || message.toLowerCase().includes( 'available' );
         return NextResponse.json(
             { error: outOfStock ? 'Some saved cart quantities are no longer available. Review your cart.' : 'Could not merge your saved cart and wishlist.' },
@@ -217,14 +227,14 @@ export async function PUT ( request: NextRequest )
     } catch ( error )
     {
         console.error( 'Customer store update failed:', error );
-        if ( isMissingCartSyncMigration( error ) )
+        if ( isMissingCartDatabaseSetup( error ) )
         {
             return NextResponse.json(
                 { error: 'Saved cart database setup is incomplete. Run supabase/migrations/0004_customer_accounts.sql in the Supabase SQL Editor.' },
                 { status: 503 }
             );
         }
-        const message = error instanceof Error ? error.message : '';
+        const { message } = getDatabaseError( error );
         const unavailable = message.toLowerCase().includes( 'stock' ) || message.toLowerCase().includes( 'available' );
         return NextResponse.json(
             { error: unavailable ? 'A cart item is no longer available in that quantity.' : 'Could not save your cart and wishlist.' },

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { RETURN_COURIER_CHARGE } from '@/lib/returns';
 
 type ReturnableItem = {
     name?: string;
@@ -57,7 +58,7 @@ export function ReturnOrderForm (
             .then( async response =>
             {
                 const result = await response.json();
-                if ( !response.ok ) throw new Error( result.error || 'Could not check the return courier charge.' );
+                if ( !response.ok ) throw new Error( result.error || 'Could not calculate the estimated refund.' );
                 setQuote( {
                     returnShippingCharge: Number( result.returnShippingCharge ),
                     refundAmount: Number( result.refundAmount ),
@@ -66,7 +67,7 @@ export function ReturnOrderForm (
             .catch( cause =>
             {
                 if ( !controller.signal.aborted )
-                    setQuoteError( cause instanceof Error ? cause.message : 'Could not check the return courier charge.' );
+                    setQuoteError( cause instanceof Error ? cause.message : 'Could not calculate the estimated refund.' );
             } )
             .finally( () =>
             {
@@ -86,10 +87,10 @@ export function ReturnOrderForm (
         }
         if ( !quote || quoteLoading )
         {
-            setError( quoteError || 'Wait for the courier to calculate the return charge before submitting.' );
+            setError( quoteError || 'Wait for the estimated refund to be calculated before submitting.' );
             return;
         }
-        if ( !window.confirm( `Submit return request?\n\nSelected products: ${ selectedItems.length }\nReturn courier charge (deducted from refund): ₹${ quote.returnShippingCharge.toLocaleString( 'en-IN' ) }\nEstimated refund: ₹${ quote.refundAmount.toLocaleString( 'en-IN' ) }\nThe original delivery charge is not refundable. Refund is processed after the returned items are received and checked.` ) )
+        if ( !window.confirm( `Submit return request?\n\nSelected products: ${ selectedItems.length }\nFixed return courier charge (deducted from refund): ₹${ RETURN_COURIER_CHARGE.toLocaleString( 'en-IN' ) }\nEstimated refund: ₹${ quote.refundAmount.toLocaleString( 'en-IN' ) }\nReturn policy: Request within 48 hours of delivery. Example: ₹435 eligible return value - ₹35 return charge = ₹400 refund. Original delivery charges are not refundable. Refund is processed after returned items are received and checked.` ) )
             return;
 
         setPending( true );
@@ -113,7 +114,7 @@ export function ReturnOrderForm (
 
     return <form onSubmit={ submit } className="mt-5 border-t border-stone pt-5">
         <label className="block text-sm font-semibold" htmlFor="return-reason">Request a return</label>
-        <p className="mt-1 text-xs leading-5 text-zinc-600">Available within 48 hours of delivery. The courier API checks the return delivery charge from your PIN code back to our warehouse. This quoted amount is deducted from the refund; the original delivery charge is not refundable.</p>
+        <p className="mt-1 text-xs leading-5 text-zinc-600">Return requests must be made within 48 hours of delivery. A fixed ₹{ RETURN_COURIER_CHARGE } return courier charge is deducted from the eligible refund. For example, ₹435 eligible return value means ₹400 refund after this charge. Original delivery charges are not refundable. Refunds are processed after returned items are received and checked.</p>
         <fieldset className="mt-3 space-y-2">
             <legend className="text-sm font-medium">Choose products</legend>
             { items.map( ( item, index ) => <label key={ `${ item.name }-${ index }` } className="flex items-start gap-2 border border-stone p-3 text-sm">
@@ -129,19 +130,18 @@ export function ReturnOrderForm (
             </label> ) }
         </fieldset>
         { selectedItems.length > 0 && <div className="mt-3 border border-stone bg-white p-3 text-sm" aria-live="polite">
-            { quoteLoading ? <p className="text-zinc-600">Checking return courier charge…</p> : quoteError ? (
+            { quoteLoading ? <p className="text-zinc-600">Calculating estimated refund…</p> : quoteError ? (
                 <p className="text-rose-700">{ quoteError }</p>
             ) : quote && <>
-                <p>Return courier charge (deducted): <span className="font-medium">₹{ quote.returnShippingCharge.toLocaleString( 'en-IN' ) }</span></p>
+                <p>Fixed return courier charge (deducted): <span className="font-medium">₹{ quote.returnShippingCharge.toLocaleString( 'en-IN' ) }</span></p>
                 <p className="mt-1">Estimated refund: <span className="font-medium">₹{ quote.refundAmount.toLocaleString( 'en-IN' ) }</span></p>
-                <p className="mt-1 text-xs text-zinc-500">The final courier charge may change if the parcel weight or dimensions differ when collected.</p>
             </> }
         </div> }
         { quoteError && <button
             type="button"
             className="mt-2 text-sm underline"
             onClick={ () => setQuoteAttempt( attempt => attempt + 1 ) }
-        >Try checking the courier charge again</button> }
+        >Try calculating the refund again</button> }
         <textarea
             id="return-reason"
             className="mt-3 w-full border border-stone px-3 py-2 text-sm"
@@ -155,7 +155,7 @@ export function ReturnOrderForm (
         { quoteError && <p className="mt-2 text-sm text-rose-700" role="alert">{ quoteError }</p> }
         { error && <p className="mt-2 text-sm text-rose-700" role="alert">{ error }</p> }
         <button type="submit" className="button-outline mt-3 border-rose-300 text-rose-800 hover:bg-rose-50 disabled:opacity-50" disabled={ pending || quoteLoading || !quote }>
-            { pending ? 'Submitting…' : quoteLoading ? 'Checking courier charge…' : quote ? `Request return · Est. refund ₹${ quote.refundAmount.toLocaleString( 'en-IN' )}` : 'Check return courier charge' }
+            { pending ? 'Submitting…' : quoteLoading ? 'Calculating refund…' : quote ? `Request return · Est. refund ₹${ quote.refundAmount.toLocaleString( 'en-IN' )}` : 'Calculate estimated refund' }
         </button>
     </form>;
 }

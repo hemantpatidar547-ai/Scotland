@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { checkoutCartSchema, checkoutShippingAddressSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { DelhiveryServiceError, getDelhiveryDeliveryEstimate } from '@/lib/delhivery/serviceability';
+import { getOrderControlStatus, OrderControlUnavailableError } from '@/lib/order-control';
 
 export async function POST ( request: NextRequest )
 {
@@ -15,6 +16,13 @@ export async function POST ( request: NextRequest )
             windowSeconds: 60,
         } );
         if ( rateLimitResponse ) return rateLimitResponse;
+
+        const orderControl = await getOrderControlStatus();
+        if ( orderControl.orderPaused )
+            return NextResponse.json(
+                { error: orderControl.orderPauseMessage, code: 'ORDERS_PAUSED' },
+                { status: 409 }
+            );
 
         const body = await request.json();
         const cart = checkoutCartSchema.safeParse( body.cartItems );
@@ -47,6 +55,13 @@ export async function POST ( request: NextRequest )
             return NextResponse.json( { error: 'The order total is invalid. Please refresh your cart.' }, { status: 400 } );
         }
 
+        const latestOrderControl = await getOrderControlStatus();
+        if ( latestOrderControl.orderPaused )
+            return NextResponse.json(
+                { error: latestOrderControl.orderPauseMessage, code: 'ORDERS_PAUSED' },
+                { status: 409 }
+            );
+
         const razorpay = new Razorpay( { key_id: keyId, key_secret: keySecret } );
         const order = await razorpay.orders.create( {
             amount: Math.round( amount * 100 ),
@@ -58,6 +73,11 @@ export async function POST ( request: NextRequest )
     } catch ( error )
     {
         console.error( 'Razorpay create-order error:', error );
+        if ( error instanceof OrderControlUnavailableError )
+            return NextResponse.json(
+                { error: 'We cannot verify order availability right now. Please try again shortly.' },
+                { status: 503 }
+            );
         if ( error instanceof DelhiveryServiceError )
         {
             return NextResponse.json(

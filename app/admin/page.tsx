@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { DeliveryChargeToggle } from '@/components/CodChargeToggle';
 import RefreshOnInterval from '@/components/RefreshOnInterval';
+import { OrderControlPanel } from '@/components/admin/OrderControlPanel';
 
 type DashboardOrder = {
     id: string;
@@ -195,6 +196,10 @@ export default async function Admin ()
                             Delivery progress must come from the courier. Shipment creation and live location remain unavailable until the account&apos;s official API workflow supports them.
                         </p>
                     </div>
+                </section>
+
+                <section className="mt-8">
+                    <OrderControlPanel />
                 </section>
 
                 <section className="mt-8">

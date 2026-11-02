@@ -204,7 +204,6 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
                 if ( !response.ok )
                 {
                     const result = await response.json();
-                    console.error( 'Could not save account cart/wishlist:', result.error || response.statusText );
                     setSyncError( result.error || 'Your saved cart could not be synchronized.' );
                 } else
                 {

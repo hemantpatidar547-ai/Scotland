@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { cartItemKey, useStore } from '@/components/StoreProvider';
 
 const money = ( amount: number ) => new Intl.NumberFormat( 'en-IN', {
@@ -13,8 +14,21 @@ const money = ( amount: number ) => new Intl.NumberFormat( 'en-IN', {
 export default function Cart ()
 {
     const { cart, removeFromCart, setQty, isReady, syncError } = useStore();
+    const [ freeDeliveryOffer, setFreeDeliveryOffer ] = useState( false );
     const subtotal = cart.reduce( ( total, item ) => total + ( item.product.salePrice || item.product.price ) * item.quantity, 0 );
-    const shipping = subtotal >= 4000 ? 0 : 50;
+    const freeDelivery = freeDeliveryOffer || subtotal >= 4000;
+
+    useEffect( () =>
+    {
+        fetch( '/api/settings?t=' + Date.now() )
+            .then( response =>
+            {
+                if ( !response.ok ) throw new Error( 'Could not load delivery settings.' );
+                return response.json();
+            } )
+            .then( data => setFreeDeliveryOffer( data.freeDelivery === true ) )
+            .catch( error => console.error( 'Could not load cart delivery settings:', error ) );
+    }, [] );
 
     if ( !isReady ) return <main className="shell py-24 text-center"><p className="text-zinc-500">Loading your saved cart…</p></main>;
 
@@ -67,9 +81,10 @@ export default function Cart ()
                     <h2 className="display text-2xl">Order summary</h2>
                     <div className="mt-6 space-y-3 border-b border-stone pb-5 text-sm">
                         <div className="flex justify-between"><span>Subtotal</span><span>{ money( subtotal ) }</span></div>
-                        <div className="flex justify-between"><span>Shipping</span><span>{ shipping ? money( shipping ) : 'Free' }</span></div>
+                        <div className="flex justify-between"><span>Delivery</span><span>{ freeDelivery ? 'Free' : 'Calculated at checkout' }</span></div>
                     </div>
-                    <div className="flex justify-between py-5 font-semibold"><span>Total</span><span>{ money( subtotal + shipping ) }</span></div>
+                    <div className="flex justify-between py-5 font-semibold"><span>{ freeDelivery ? 'Total' : 'Items total' }</span><span>{ money( subtotal ) }</span></div>
+                    { !freeDelivery && <p className="-mt-2 mb-4 text-xs leading-5 text-zinc-500">Enter your PIN code at checkout to calculate delivery based on courier availability and payment method.</p> }
                     <Link className="button w-full" href="/checkout">Secure checkout</Link>
                 </aside>
             </div>

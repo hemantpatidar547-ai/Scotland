@@ -7,8 +7,6 @@ import { trackAnalyticsEvent } from '@/lib/analytics';
 
 const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 } ).format( n );
 
-const DELIVERY_CHARGE = 50; // Flat ₹50 delivery for all orders
-
 type DeliveryMethodQuote = {
     available: boolean;
     courierCharge: number | null;
@@ -32,7 +30,7 @@ export default function Checkout ()
     const [ loading, setLoading ] = useState( false );
     const [ mounted, setMounted ] = useState( false );
     const [ returnPolicyAccepted, setReturnPolicyAccepted ] = useState( false );
-    const [ deliveryCharge, setDeliveryCharge ] = useState( 50 );
+    const [ deliveryCharge, setDeliveryCharge ] = useState<number | null>( null );
     const [ freeDeliveryOffer, setFreeDeliveryOffer ] = useState( false );
 
     const [ pincode, setPincode ] = useState( '' );
@@ -40,28 +38,27 @@ export default function Checkout ()
     const [ deliveryCheck, setDeliveryCheck ] = useState<DeliveryCheck | null>( null );
     const [ deliveryCheckStatus, setDeliveryCheckStatus ] = useState<'idle' | 'checking' | 'error'>( 'idle' );
     const [ deliveryCheckError, setDeliveryCheckError ] = useState( '' );
+    const [ orderControlReady, setOrderControlReady ] = useState( false );
+    const [ orderPaused, setOrderPaused ] = useState( false );
+    const [ orderPauseMessage, setOrderPauseMessage ] = useState( '' );
+    const [ orderControlError, setOrderControlError ] = useState( '' );
+    const [ checkingOrderControl, setCheckingOrderControl ] = useState( false );
+    const [ pauseModalMessage, setPauseModalMessage ] = useState( '' );
 
     // Pre-filled user data from session
     const [ userEmail, setUserEmail ] = useState( '' );
     const [ userFirstName, setUserFirstName ] = useState( '' );
     const [ userLastName, setUserLastName ] = useState( '' );
     const [ userPhone, setUserPhone ] = useState( '' );
+    const [ alternatePhone, setAlternatePhone ] = useState( '' );
 
     const subtotal = cart.reduce( ( a, x ) => a + ( x.product.salePrice || x.product.price ) * x.quantity, 0 );
-    const total = subtotal + deliveryCharge;
+    const freeDelivery = freeDeliveryOffer || subtotal >= 4000;
+    const total = subtotal + ( deliveryCharge ?? 0 );
 
     useEffect( () =>
     {
         setMounted( true );
-        fetch( '/api/settings?t=' + Date.now() )
-            .then( r => r.json() )
-            .then( data =>
-            {
-                setFreeDeliveryOffer( data.freeDelivery === true );
-                setDeliveryCharge( data.deliveryCharge ?? 50 );
-            } )
-            .catch( () => { } );
-
         // Auto-fill from authenticated session
         fetch( '/api/auth/session' )
             .then( r => r.json() )
@@ -137,11 +134,55 @@ export default function Checkout ()
 
     useEffect( () =>
     {
-        if ( deliveryCheck?.status !== 'available' ) return;
+        let active = true;
+        let refreshTimer: number | undefined;
+        const refreshOrderControl = async () =>
+        {
+            try
+            {
+                const response = await fetch( '/api/settings', { cache: 'no-store' } );
+                const result = await response.json();
+                if ( !response.ok ) throw new Error( result.error || 'Could not verify order availability.' );
+                if ( !active ) return;
+                setFreeDeliveryOffer( result.freeDelivery === true );
+                setOrderPaused( result.orderPaused === true );
+                setOrderPauseMessage( typeof result.orderPauseMessage === 'string' ? result.orderPauseMessage : '' );
+                setOrderControlError( '' );
+                setOrderControlReady( true );
+            } catch ( error )
+            {
+                if ( !active ) return;
+                setOrderControlReady( false );
+                setOrderControlError( error instanceof Error ? error.message : 'Could not verify order availability.' );
+            } finally
+            {
+                if ( active ) refreshTimer = window.setTimeout( () => void refreshOrderControl(), 10000 );
+            }
+        };
+
+        void refreshOrderControl();
+        return () =>
+        {
+            active = false;
+            if ( refreshTimer !== undefined ) window.clearTimeout( refreshTimer );
+        };
+    }, [] );
+
+    useEffect( () =>
+    {
+        if ( freeDelivery )
+        {
+            setDeliveryCharge( 0 );
+            return;
+        }
+        if ( deliveryCheck?.status !== 'available' )
+        {
+            setDeliveryCharge( null );
+            return;
+        }
         const quote = paymentMethod === 'cod' ? deliveryCheck.cod : deliveryCheck.prepaid;
-        if ( quote.courierCharge === null ) return;
-        setDeliveryCharge( freeDeliveryOffer || subtotal >= 4000 ? 0 : quote.courierCharge );
-    }, [ deliveryCheck, freeDeliveryOffer, paymentMethod, subtotal ] );
+        setDeliveryCharge( quote.courierCharge );
+    }, [ deliveryCheck, freeDelivery, paymentMethod ] );
 
     if ( !mounted || !isReady ) return <main className="shell py-24 text-center"><p className="text-zinc-400">Loading checkout...</p></main>;
 
@@ -161,7 +202,7 @@ export default function Checkout ()
     {
         const val = e.target.value.replace( /\D/g, '' ).slice( 0, 6 ); // Only numbers
         setPincode( val );
-        setDeliveryCharge( freeDeliveryOffer || subtotal >= 4000 ? 0 : DELIVERY_CHARGE );
+        setDeliveryCharge( freeDelivery ? 0 : null );
     };
 
     async function submitOrderToBackend ( shippingAddress: any, razorpayData: any = null )
@@ -187,6 +228,11 @@ export default function Checkout ()
             body: JSON.stringify( payload )
         } );
         const data = await res.json();
+        if ( data.code === 'ORDERS_PAUSED' )
+        {
+            setPauseModalMessage( data.error );
+            throw new Error( 'ORDERS_PAUSED' );
+        }
         if ( data.error ) throw new Error( data.error );
         trackAnalyticsEvent( 'purchase', {
             transaction_id: data.orderNumber,
@@ -210,6 +256,7 @@ export default function Checkout ()
         city: string;
         postalCode: string;
         phone: string;
+        alternatePhone?: string;
         country: 'India';
     } )
     {
@@ -239,7 +286,8 @@ export default function Checkout ()
 
             if ( data.error )
             {
-                alert( data.error );
+                if ( data.code === 'ORDERS_PAUSED' ) setPauseModalMessage( data.error );
+                else alert( data.error );
                 return;
             }
 
@@ -276,6 +324,7 @@ export default function Checkout ()
                             setTimeout( () => router.push( '/account/orders' ), 1200 );
                         } catch ( e )
                         {
+                            if ( e instanceof Error && e.message === 'ORDERS_PAUSED' ) return;
                             alert( 'Payment successful but order saving failed.' );
                             console.error( e );
                         }
@@ -305,6 +354,35 @@ export default function Checkout ()
     {
         e.preventDefault();
         const form = e.currentTarget;
+        setCheckingOrderControl( true );
+        try
+        {
+            const response = await fetch( '/api/settings', { cache: 'no-store' } );
+            const result = await response.json();
+            if ( !response.ok ) throw new Error( result.error || 'Could not verify order availability.' );
+
+            setFreeDeliveryOffer( result.freeDelivery === true );
+            setOrderPaused( result.orderPaused === true );
+            setOrderPauseMessage( typeof result.orderPauseMessage === 'string' ? result.orderPauseMessage : '' );
+            setOrderControlError( '' );
+            setOrderControlReady( true );
+            if ( result.orderPaused === true )
+            {
+                setPauseModalMessage( result.orderPauseMessage );
+                return;
+            }
+        } catch ( error )
+        {
+            const message = error instanceof Error ? error.message : 'Could not verify order availability.';
+            setOrderControlReady( false );
+            setOrderControlError( message );
+            setPauseModalMessage( 'We cannot verify order availability right now. Please try again shortly.' );
+            return;
+        } finally
+        {
+            setCheckingOrderControl( false );
+        }
+
         if ( !form.reportValidity() ) return;
 
         const selectedDelivery = paymentMethod === 'cod' ? deliveryCheck?.cod : deliveryCheck?.prepaid;
@@ -346,6 +424,7 @@ export default function Checkout ()
             city: city.trim(),
             postalCode: pincode,
             phone: String( fd.get( 'phone' ) || '' ).replace( /\D/g, '' ),
+            alternatePhone: String( fd.get( 'alternatePhone' ) || '' ).replace( /\D/g, '' ),
             country: 'India' as const,
         };
 
@@ -354,9 +433,10 @@ export default function Checkout ()
             shippingAddress.address.length < 4 ||
             !shippingAddress.city ||
             !/^\d{6}$/.test( shippingAddress.postalCode ) ||
-            !/^\d{10}$/.test( shippingAddress.phone ) )
+            !/^\d{10}$/.test( shippingAddress.phone ) ||
+            Boolean( shippingAddress.alternatePhone ) && !/^\d{10}$/.test( shippingAddress.alternatePhone ) )
         {
-            alert( 'Please complete every delivery field with valid information before placing your order.' );
+            alert( 'Please complete the delivery fields with valid phone numbers before placing your order.' );
             return;
         }
 
@@ -375,7 +455,7 @@ export default function Checkout ()
                 setTimeout( () => router.push( '/account/orders' ), 1200 );
             } catch ( err: any )
             {
-                alert( 'Error saving order: ' + err.message );
+                if ( err.message !== 'ORDERS_PAUSED' ) alert( 'Error saving order: ' + err.message );
                 setLoading( false );
             }
         }
@@ -392,7 +472,16 @@ export default function Checkout ()
         <main className="shell py-12">
             <h1 className="display text-5xl">Checkout</h1>
             <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_360px]">
-                <form onSubmit={ submit } className="space-y-7">
+                { orderPaused && <div className="mb-6 border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="status">
+                    <p className="font-semibold">Orders are temporarily paused</p>
+                    <p className="mt-1">{ orderPauseMessage }</p>
+                </div> }
+                { orderControlError && <p className="mb-6 border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800" role="alert">
+                    Order availability could not be verified. New orders are disabled until the store status can be confirmed.
+                </p> }
+                { !orderControlReady && !orderControlError && <p className="mb-6 text-sm text-zinc-500" role="status">Checking whether orders are open…</p> }
+
+                <form noValidate onSubmit={ submit } className="space-y-7">
                     <section>
                         <h2 className="font-semibold">Contact information</h2>
                         <input className="input mt-3" required type="email" name="email" placeholder="Email address" value={ userEmail } onChange={ e => setUserEmail( e.target.value ) } />
@@ -460,6 +549,7 @@ export default function Checkout ()
                             ) }
 
                             <input className="input sm:col-span-2" required type="tel" name="phone" placeholder="Phone number (10 digits)" pattern="[0-9]{10}" maxLength={ 10 } minLength={ 10 } title="Phone number must be exactly 10 digits" value={ userPhone } onChange={ e => setUserPhone( e.target.value.replace( /\D/g, '' ).slice( 0, 10 ) ) } />
+                            <input className="input sm:col-span-2" type="tel" name="alternatePhone" placeholder="Alternate phone number (optional, 10 digits)" pattern="[0-9]{10}" maxLength={ 10 } minLength={ 10 } title="Alternate phone number must be exactly 10 digits" value={ alternatePhone } onChange={ e => setAlternatePhone( e.target.value.replace( /\D/g, '' ).slice( 0, 10 ) ) } />
                         </div>
                     </section>
 
@@ -483,7 +573,7 @@ export default function Checkout ()
                         <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-zinc-600">
                             <li>You may cancel before the order is dispatched.</li>
                             <li>Request a return within 48 hours of delivery. The return window starts when the order is marked delivered.</li>
-                            <li>The return courier charge is checked using the courier rate API and deducted from your refund. The original delivery charge is not refundable; the return charge and estimated refund are shown before you submit a return.</li>
+                            <li>A fixed ₹35 return courier charge is deducted from your eligible refund. For example, ₹435 eligible return value means ₹400 refund after this charge. The original delivery charge is not refundable; your estimated refund is shown before you submit a return.</li>
                             <li>Refund is processed after the returned product is received and checked. Online refunds are handled manually by the store; COD refunds are arranged by customer support.</li>
                         </ul>
                         <label className="mt-4 flex items-start gap-2 text-sm">
@@ -501,12 +591,16 @@ export default function Checkout ()
                     <button disabled={
                         !cart.length ||
                         loading ||
-                        !returnPolicyAccepted ||
-                        deliveryCheckStatus !== 'idle' ||
-                        deliveryCheck?.status !== 'available' ||
-                        !( paymentMethod === 'cod' ? deliveryCheck.cod.available : deliveryCheck.prepaid.available )
+                        checkingOrderControl ||
+                        ( !orderPaused && (
+                            !orderControlReady ||
+                            !returnPolicyAccepted ||
+                            deliveryCheckStatus !== 'idle' ||
+                            deliveryCheck?.status !== 'available' ||
+                            !( paymentMethod === 'cod' ? deliveryCheck.cod.available : deliveryCheck.prepaid.available )
+                        ) )
                     } className="button w-full disabled:opacity-40 transition flex justify-center items-center">
-                        { loading ? 'Processing...' : ( paymentMethod === 'razorpay' ? 'Pay Now securely' : 'Place order (COD)' ) }
+                        { checkingOrderControl ? 'Checking order status…' : loading ? 'Processing...' : orderPaused ? 'View order pause message' : ( paymentMethod === 'razorpay' ? 'Pay Now securely' : 'Place order (COD)' ) }
                     </button>
                 </form>
 
@@ -527,10 +621,22 @@ export default function Checkout ()
                         </div>
                         <div className="flex justify-between text-sm">
                             <span className="text-zinc-500">Delivery</span>
-                            { deliveryCharge === 0 ? (
+                            { freeDelivery ? (
                                 <span className="text-emerald-600 font-semibold">FREE 🎉</span>
-                            ) : (
+                            ) : deliveryCharge !== null ? (
                                 <span className="text-zinc-500">{ money( deliveryCharge ) }</span>
+                            ) : (
+                                <span className="text-zinc-500">
+                                    { deliveryCheck?.status === 'unavailable'
+                                        ? 'Not available for this PIN'
+                                        : deliveryCheck?.status === 'available'
+                                            ? 'Not available for this payment method'
+                                        : deliveryCheckStatus === 'checking'
+                                            ? 'Checking…'
+                                            : deliveryCheckStatus === 'error'
+                                                ? 'Could not calculate'
+                                                : 'Enter PIN to calculate' }
+                                </span>
                             ) }
                         </div>
                         <div className="flex justify-between font-semibold text-lg border-t border-stone pt-3 mt-2">
@@ -540,6 +646,18 @@ export default function Checkout ()
                     </div>
                 </aside>
             </div>
+            { pauseModalMessage && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" role="presentation" onMouseDown={ event =>
+                {
+                    if ( event.target === event.currentTarget ) setPauseModalMessage( '' );
+                } }>
+                <section className="w-full max-w-md border border-stone bg-white p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="order-pause-title">
+                    <p className="eyebrow text-zinc-500">Store notice</p>
+                    <h2 id="order-pause-title" className="display mt-2 text-2xl text-navy">Orders temporarily paused</h2>
+                    <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-zinc-700">{ pauseModalMessage }</p>
+                    <p className="mt-3 text-xs text-zinc-500">Your bag and checkout details are still here. Please try placing your order again later.</p>
+                    <button type="button" className="button mt-6 w-full" onClick={ () => setPauseModalMessage( '' ) }>Got it</button>
+                </section>
+            </div> }
         </main>
     );
 }

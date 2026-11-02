@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
+import { getReturnItems, type ReturnableItem } from '@/lib/returns';
 
 export async function GET ()
 {
@@ -12,7 +13,7 @@ export async function GET ()
         const since = new Date();
         since.setDate( since.getDate() - 30 );
         const db = getSupabaseAdmin();
-        const selection = 'id, order_number, created_at, order_status, payment_status, payment_method, final_amount, total_amount, shipping_cost, courier_name, tracking_number, courier_status, courier_status_updated_at, courier_shipping_charge, courier_dispatch_queued, courier_api_submission_state, courier_api_submission_error, courier_package_weight_g, shipping_address, user_email, email, items, return_status, return_refund_amount, return_shipping_charge';
+        const selection = 'id, order_number, created_at, order_status, payment_status, payment_method, final_amount, total_amount, shipping_cost, courier_name, tracking_number, courier_status, courier_status_updated_at, courier_shipping_charge, courier_dispatch_queued, courier_api_submission_state, courier_api_submission_error, courier_package_weight_g, shipping_address, user_email, email, items, return_status, return_item_indexes, return_refund_amount, return_shipping_charge';
         const [ { data, error }, { data: queuedData, error: queuedError, count: queuedCount } ] = await Promise.all( [
             db.from( 'orders' )
                 .select( selection )
@@ -53,6 +54,7 @@ export async function GET ()
             courierPackageWeightG: order.courier_package_weight_g === null ? null : Number( order.courier_package_weight_g ),
             customerName: order.shipping_address?.name || 'Customer',
             customerPhone: order.shipping_address?.phone || '',
+            customerAlternatePhone: order.shipping_address?.alternatePhone || '',
             customerEmail: order.user_email || order.email || '',
             shippingAddress: order.shipping_address,
             items: Array.isArray( order.items ) ? order.items.map( ( item: Record<string, unknown> ) => ( {
@@ -67,6 +69,10 @@ export async function GET ()
                 ? order.items.reduce( ( count: number, item: { quantity?: number } ) => count + Number( item.quantity || 0 ), 0 )
                 : 0,
             returnStatus: order.return_status,
+            returnItems: getReturnItems(
+                Array.isArray( order.items ) ? order.items as ReturnableItem[] : [],
+                Array.isArray( order.return_item_indexes ) ? order.return_item_indexes : []
+            ),
             returnRefundAmount: order.return_refund_amount === null ? null : Number( order.return_refund_amount ),
             returnShippingCharge: order.return_shipping_charge === null ? null : Number( order.return_shipping_charge ),
         } );

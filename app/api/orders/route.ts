@@ -7,6 +7,7 @@ import { bustProductCache } from '@/lib/data';
 import { checkoutCartSchema, checkoutShippingAddressSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { DelhiveryServiceError, getDelhiveryDeliveryEstimate } from '@/lib/delhivery/serviceability';
+import { getOrderControlStatus, OrderControlUnavailableError } from '@/lib/order-control';
 import { z } from 'zod';
 
 function secureCompare ( first: string, second: string ): boolean
@@ -49,6 +50,13 @@ export async function POST ( request: NextRequest )
             windowSeconds: 600,
         } );
         if ( rateLimitResponse ) return rateLimitResponse;
+
+        const orderControl = await getOrderControlStatus();
+        if ( orderControl.orderPaused )
+            return NextResponse.json(
+                { error: orderControl.orderPauseMessage, code: 'ORDERS_PAUSED' },
+                { status: 409 }
+            );
 
         const body = await request.json();
         const cart = checkoutCartSchema.safeParse( body.cartItems );
@@ -143,6 +151,14 @@ export async function POST ( request: NextRequest )
         {
             console.error( 'Atomic order creation failed:', orderError );
             const message = orderError.message.toLowerCase();
+            if ( message.includes( 'orders are temporarily paused' ) )
+            {
+                const currentControl = await getOrderControlStatus();
+                return NextResponse.json(
+                    { error: currentControl.orderPauseMessage, code: 'ORDERS_PAUSED' },
+                    { status: 409 }
+                );
+            }
             if ( message.includes( 'insufficient stock' ) )
             {
                 return NextResponse.json( { error: 'The requested quantity is no longer in stock. Please update your cart.' }, { status: 409 } );
@@ -169,6 +185,11 @@ export async function POST ( request: NextRequest )
     } catch ( error )
     {
         console.error( 'Order creation error:', error );
+        if ( error instanceof OrderControlUnavailableError )
+            return NextResponse.json(
+                { error: 'We cannot verify order availability right now. Please try again shortly.' },
+                { status: 503 }
+            );
         if ( error instanceof DelhiveryServiceError )
         {
             return NextResponse.json(

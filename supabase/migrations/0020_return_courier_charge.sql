@@ -26,10 +26,7 @@ declare
   estimated_refund numeric(12,2);
   courier_charge numeric(12,2);
 begin
-  courier_charge := round(p_return_shipping_charge, 2);
-  if courier_charge is null or courier_charge < 0 or courier_charge > 100000 then
-    raise exception 'Invalid return courier charge';
-  end if;
+  courier_charge := 35;
 
   select *
   into current_order

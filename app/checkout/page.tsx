@@ -227,8 +227,6 @@ export default function Checkout ()
         setDeliveryCharge( quote.courierCharge );
     }, [ deliveryCheck, freeDelivery, paymentMethod ] );
 
-    if ( !mounted || !isReady ) return <main className="shell py-24 text-center"><p className="text-zinc-400">Loading checkout...</p></main>;
-
     const handlePincodeChange = ( e: React.ChangeEvent<HTMLInputElement> ) =>
     {
         const val = e.target.value.replace( /\D/g, '' ).slice( 0, 6 ); // Only numbers
@@ -438,6 +436,8 @@ export default function Checkout ()
             if ( pollTimer !== undefined ) window.clearTimeout( pollTimer );
         };
     }, [ mounted, clearCart, router ] );
+
+    if ( !mounted || !isReady ) return <main className="shell py-24 text-center"><p className="text-zinc-400">Loading checkout...</p></main>;
 
     async function submit ( e: FormEvent<HTMLFormElement> )
     {

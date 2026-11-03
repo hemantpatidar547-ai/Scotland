@@ -52,8 +52,11 @@ export default function Contact ()
                     <p className="mt-4 text-zinc-600">
                         For inquiries regarding your orders, styling advice, or general questions, please email us.
                     </p>
-                    <a href="mailto:support@scotland.com" className="mt-4 inline-block font-mono text-xs text-navy border-b border-navy/30 pb-0.5 hover:border-navy transition">
-                        support@scotland.com
+                    <a href="mailto:scotlandindia6@gmail.com" className="mt-4 inline-block font-mono text-xs text-navy border-b border-navy/30 pb-0.5 hover:border-navy transition">
+                        scotlandindia6@gmail.com
+                    </a>
+                    <a href="tel:+918817266911" className="mt-3 block w-fit font-mono text-xs text-navy border-b border-navy/30 pb-0.5 hover:border-navy transition">
+                        Call us: 8817266911
                     </a>
                 </div>
             </div>

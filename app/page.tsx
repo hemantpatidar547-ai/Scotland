@@ -8,7 +8,7 @@ import { CoastalEditorialSection } from '@/components/CoastalEditorialSection';
 import { getRecentlyUpdatedProducts } from '@/lib/product-recommendations';
 import { getHomepageShowcase } from '@/lib/homepage-showcase';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 const heroImages = [
   {
@@ -46,8 +46,10 @@ function getDailyProducts ( products: Awaited<ReturnType<typeof getAllProducts>>
 
 export default async function Home ()
 {
-  const products = await getAllProducts();
-  const homepageShowcase = await getHomepageShowcase();
+  const [ products, homepageShowcase ] = await Promise.all( [
+    getAllProducts(),
+    getHomepageShowcase(),
+  ] );
   const publishedProducts = products.filter( product => product.status === 'published' );
   const dailyProducts = getDailyProducts( publishedProducts );
   const newArrivalProducts = getRecentlyUpdatedProducts( publishedProducts, 12 );

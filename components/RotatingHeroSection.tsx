@@ -51,18 +51,12 @@ export function RotatingHeroSection({
             className={`absolute inset-0 z-0 transition-opacity duration-500 ${
               index === currentImageIndex ? 'opacity-100' : 'opacity-0'
             }`}
-            style={{
-              backgroundImage: `url("${image.src}")`,
-              backgroundPosition: 'center center',
-              backgroundSize: 'cover',
-            }}
           >
             <Image
               src={image.src}
               alt={image.alt}
               fill
               priority={index === 0}
-              unoptimized
               className="object-cover object-center brightness-[.65] sm:brightness-[.52]"
               sizes="100vw"
             />

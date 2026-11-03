@@ -44,7 +44,7 @@ const CACHE_TTL_MS = 60_000; // 60 seconds
 
 let _cachedProducts: Product[] | null = null;
 let _cacheTimestamp = 0;
-const PRODUCT_QUERY_BATCH_SIZE = 2;
+const PRODUCT_QUERY_BATCH_SIZE = 100;
 
 function isTransientNetworkError ( error: { message?: string; details?: string | null } ): boolean
 {

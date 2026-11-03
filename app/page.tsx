@@ -12,16 +12,20 @@ export const revalidate = 60;
 
 const heroImages = [
   {
-    src: '/images/hero/photo-1496747611176-843222e1e57c.webp',
-    alt: 'Woman in a floral summer dress by the sea'
+    src: '/images/hero/mens-beachwear.webp',
+    alt: 'Man walking along a beach in casual menswear'
   },
   {
-    src: '/images/hero/man-cafe-linen.jpg',
-    alt: 'Man in white linen shirt at cafe'
+    src: '/images/hero/menswear-beach-02.jpg',
+    alt: 'Man in a striped shirt and relaxed trousers on the beach'
   },
   {
-    src: '/images/hero/man-luxury-car.jpg',
-    alt: 'Man in pinstriped shirt and jeans by luxury car'
+    src: '/images/hero/menswear-city-03.jpg',
+    alt: 'Man in a light casual outfit walking through a European city'
+  },
+  {
+    src: '/images/hero/menswear-home-04.jpg',
+    alt: 'Man in casual modern clothing at home'
   }
 ];
 

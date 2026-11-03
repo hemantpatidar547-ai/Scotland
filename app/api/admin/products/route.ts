@@ -302,7 +302,7 @@ export async function GET ()
 
     const { data, error } = await supabaseAdmin
         .from( 'product_variants' )
-        .select( 'id, product_id, color, size, stock_quantity' )
+        .select( 'id, product_id, color, size, stock_quantity, reserved_quantity' )
         .eq( 'is_active', true );
 
     if ( error ) return NextResponse.json( { error: error.message }, { status: 500 } );
@@ -313,7 +313,10 @@ export async function GET ()
             productId: variant.product_id,
             color: variant.color || 'Default',
             size: variant.size || 'One size',
-            stockQuantity: Number( variant.stock_quantity ) || 0,
+            stockQuantity: Math.max(
+                0,
+                ( Number( variant.stock_quantity ) || 0 ) - ( Number( variant.reserved_quantity ) || 0 )
+            ),
         } ) ),
     } );
 }

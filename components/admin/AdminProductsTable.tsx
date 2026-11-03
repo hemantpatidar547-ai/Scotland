@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Product } from '@/types/product';
 import { DeleteProductButton } from '@/components/DeleteProductButton';
@@ -17,6 +17,7 @@ type InventoryVariant = {
 export function AdminProductsTable ( { products }: { products: Product[] } )
 {
     const [ inventoryRefreshError, setInventoryRefreshError ] = useState<string | null>( null );
+    const refreshInProgress = useRef( false );
     const [ inventory, setInventory ] = useState<Record<string, InventoryVariant[]>>(
         () => Object.fromEntries( products.map( product => [
             product.id,
@@ -26,6 +27,8 @@ export function AdminProductsTable ( { products }: { products: Product[] } )
 
     const refreshInventory = useCallback( async () =>
     {
+        if ( refreshInProgress.current ) return;
+        refreshInProgress.current = true;
         try
         {
             const response = await fetch( '/api/admin/products', { cache: 'no-store' } );
@@ -50,14 +53,40 @@ export function AdminProductsTable ( { products }: { products: Product[] } )
         } catch
         {
             setInventoryRefreshError( 'Live stock could not refresh. Showing the last available quantities.' );
+        } finally
+        {
+            refreshInProgress.current = false;
         }
     }, [] );
 
     useEffect( () =>
     {
+        let timerId: number;
+        let active = true;
+
+        const scheduleRefresh = () =>
+        {
+            if ( !active ) return;
+            timerId = window.setTimeout( async () =>
+            {
+                if ( document.visibilityState === 'visible' ) await refreshInventory();
+                scheduleRefresh();
+            }, 5000 );
+        };
+        const refreshOnVisibility = () =>
+        {
+            if ( document.visibilityState === 'visible' ) void refreshInventory();
+        };
+
         void refreshInventory();
-        const intervalId = window.setInterval( refreshInventory, 15000 );
-        return () => window.clearInterval( intervalId );
+        scheduleRefresh();
+        document.addEventListener( 'visibilitychange', refreshOnVisibility );
+        return () =>
+        {
+            active = false;
+            window.clearTimeout( timerId );
+            document.removeEventListener( 'visibilitychange', refreshOnVisibility );
+        };
     }, [ refreshInventory ] );
 
     return (

@@ -490,7 +490,10 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
 
                 { selectedSizes.length > 0 && selectedColors.length > 0 && (
                     <div className="bg-zinc-50 p-4 border border-stone rounded">
-                        <p className="text-xs text-navy font-semibold uppercase tracking-wider mb-3">Stock per Color and Size</p>
+                        <p className="text-xs text-navy font-semibold uppercase tracking-wider mb-2">Available Stock per Color and Size</p>
+                        <p className="mb-3 text-xs leading-5 text-zinc-500">
+                            Enter the sellable quantity currently remaining. Sales are already deducted, and you can lower this number to remove stock.
+                        </p>
                         <div className="space-y-4">
                             { selectedColors.map( color => (
                                 <div key={ color }>
@@ -515,7 +518,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                             ) ) }
                         </div>
                         <p className="mt-4 border-t border-stone pt-3 text-sm font-semibold text-navy">
-                            Total stock: { selectedColors.reduce( ( total, color ) => total + selectedSizes.reduce(
+                            Total available stock: { selectedColors.reduce( ( total, color ) => total + selectedSizes.reduce(
                                 ( sizeTotal, size ) => sizeTotal + ( Number( variantStock[ variantKey( color, size ) ] ) || 0 ),
                                 0
                             ), 0 ) }

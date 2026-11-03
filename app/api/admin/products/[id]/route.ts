@@ -193,13 +193,6 @@ export async function PUT ( request: Request, props: { params: Promise<{ id: str
     {
         return NextResponse.json( { error: 'A size/color with reserved orders cannot be removed.' }, { status: 409 } );
     }
-    for ( const variant of desiredVariants )
-    {
-        const existing = existingByCombination.get( JSON.stringify( [ variant.color, variant.size ] ) );
-        if ( existing && variant.stockQuantity < Number( existing.reserved_quantity ) )
-            return NextResponse.json( { error: `Stock for ${ variant.color } / ${ variant.size } cannot be lower than units reserved for orders.` }, { status: 409 } );
-    }
-
     const skuChanged = String( currentProduct.sku || '' ).trim().toUpperCase() !== normalizedSku;
     const { error: productUpdateError } = await supabaseAdmin
         .from( 'products' )
@@ -265,7 +258,7 @@ export async function PUT ( request: Request, props: { params: Promise<{ id: str
                     is_active: true,
                     price: Number( payload.price ) || 0,
                     sale_price: Number( payload.salePrice || payload.price ) || null,
-                    stock_quantity: variant.stockQuantity,
+                    stock_quantity: variant.stockQuantity + Number( existing.reserved_quantity ),
                     updated_at: new Date().toISOString(),
                 } )
                 .eq( 'id', existing.id );

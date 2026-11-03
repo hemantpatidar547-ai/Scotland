@@ -78,6 +78,10 @@ function formatSupabaseProduct ( product: any ): Product
     const variant = product.product_variants?.[ 0 ];
     const metadata = product.product_metadata || {};
     const variants = ( product.product_variants || [] ).filter( ( item: any ) => item.is_active !== false );
+    const availableStock = ( variant: any ) => Math.max(
+        0,
+        ( Number( variant.stock_quantity ) || 0 ) - ( Number( variant.reserved_quantity ) || 0 )
+    );
     const colors = Array.from( new Set<string>( variants.map( ( v: any ) => v.color ).filter( Boolean ) ) );
     const sizes = Array.from( new Set<string>( variants.map( ( v: any ) => v.size ).filter( Boolean ) ) );
 
@@ -86,7 +90,7 @@ function formatSupabaseProduct ( product: any ): Product
     {
         if ( v.size )
         {
-            acc[ v.size ] = ( acc[ v.size ] || 0 ) + ( Number( v.stock_quantity ) || 0 );
+            acc[ v.size ] = ( acc[ v.size ] || 0 ) + availableStock( v );
         }
         return acc;
     }, {} );
@@ -142,13 +146,13 @@ function formatSupabaseProduct ( product: any ): Product
             mpn: metadata.mpn,
             cost_price: product.cost_price ? Number( product.cost_price ) : undefined,
             gst: product.tax_percentage ? `${ Number( product.tax_percentage ) }%` : '0%',
-            stock: variants.reduce( ( total: number, v: any ) => total + ( Number( v.stock_quantity ) || 0 ), 0 ),
+            stock: variants.reduce( ( total: number, v: any ) => total + availableStock( v ), 0 ),
             sizeStock,
             inventoryVariants: variants.map( ( v: any ) => ( {
                 id: v.id,
                 color: v.color || 'Default',
                 size: v.size || 'One size',
-                stockQuantity: Math.max( 0, ( Number( v.stock_quantity ) || 0 ) - ( Number( v.reserved_quantity ) || 0 ) ),
+                stockQuantity: availableStock( v ),
                 sku: v.sku || undefined,
                 price: v.price == null ? undefined : Number( v.price ),
                 salePrice: v.sale_price == null ? undefined : Number( v.sale_price ),

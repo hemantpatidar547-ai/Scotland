@@ -72,10 +72,17 @@ async function migrateImageColumn ( supabase, table, column )
                 if ( uploadError ) throw new Error( `Could not upload ${ record }: ${ uploadError.message }` );
 
                 const { data: publicData } = supabase.storage.from( BUCKET ).getPublicUrl( path );
-                const { error: updateError } = await supabase.from( table )
+                const publicUrl = new URL( publicData.publicUrl );
+                if ( publicUrl.protocol !== 'https:' )
+                    throw new Error( `Supabase returned a non-HTTPS image URL for ${ record }.` );
+
+                const { data: updatedRows, error: updateError } = await supabase.from( table )
                     .update( { [ column ]: publicData.publicUrl } )
-                    .eq( 'id', row.id );
+                    .eq( 'id', row.id )
+                    .select( 'id' );
                 if ( updateError ) throw new Error( `Could not update ${ record }: ${ updateError.message }` );
+                if ( updatedRows?.length !== 1 )
+                    throw new Error( `${ record } changed during migration. The original image was left untouched; rerun the migration to inspect remaining images.` );
             }
             migrated += 1;
         }
@@ -119,10 +126,17 @@ async function migrateSizeChartImages ( supabase )
                 if ( uploadError ) throw new Error( `Could not upload ${ record }: ${ uploadError.message }` );
 
                 const { data: publicData } = supabase.storage.from( BUCKET ).getPublicUrl( path );
-                const { error: updateError } = await supabase.from( 'products' )
+                const publicUrl = new URL( publicData.publicUrl );
+                if ( publicUrl.protocol !== 'https:' )
+                    throw new Error( `Supabase returned a non-HTTPS image URL for ${ record }.` );
+
+                const { data: updatedRows, error: updateError } = await supabase.from( 'products' )
                     .update( { product_metadata: { ...metadata, size_chart: publicData.publicUrl } } )
-                    .eq( 'id', row.id );
+                    .eq( 'id', row.id )
+                    .select( 'id' );
                 if ( updateError ) throw new Error( `Could not update ${ record }: ${ updateError.message }` );
+                if ( updatedRows?.length !== 1 )
+                    throw new Error( `${ record } changed during migration. The original image was left untouched; rerun the migration to inspect remaining images.` );
             }
             migrated += 1;
         }
@@ -133,6 +147,27 @@ async function migrateSizeChartImages ( supabase )
 async function main ()
 {
     const supabase = requireConfiguration();
+    if ( APPLY )
+    {
+        const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
+        if ( bucketsError )
+            throw new Error( `Could not check Supabase Storage buckets: ${ bucketsError.message }` );
+
+        const bucket = buckets?.find( item => item.name === BUCKET );
+        if ( bucket && !bucket.public )
+            throw new Error( `The "${ BUCKET }" bucket is private. Make it public by applying supabase/migrations/0010_unlimited_product_image_bucket.sql.` );
+        if ( !bucket )
+        {
+            const { error: createError } = await supabase.storage.createBucket( BUCKET, {
+                public: true,
+                allowedMimeTypes: Object.keys( FORMATS ),
+            } );
+            if ( createError )
+                throw new Error( `Could not create the public "${ BUCKET }" bucket: ${ createError.message }` );
+            console.log( `Created public image bucket "${ BUCKET }".` );
+        }
+    }
+
     const results = [];
     for ( const [ table, column ] of [
         [ 'product_images', 'image_url' ],
@@ -146,7 +181,38 @@ async function main ()
 
     for ( const [ field, count ] of results )
         console.log( `${ APPLY ? 'Converted' : 'Would convert'} ${ count } embedded image(s) in ${ field }.` );
-    if ( !APPLY ) console.log( 'Dry run only. Review the counts, apply migration 0006, then rerun with --apply to update image references.' );
+    if ( !APPLY )
+    {
+        console.log( 'Dry run only. Re-run with --apply to upload images and update their database references.' );
+        return;
+    }
+
+    let remainingCount = 0;
+    for ( const [ table, column ] of [
+        [ 'product_images', 'image_url' ],
+        [ 'product_variants', 'image_url' ],
+        [ 'categories', 'image_url' ],
+    ] )
+    {
+        const { count, error } = await supabase.from( table )
+            .select( 'id', { count: 'exact', head: true } )
+            .like( column, 'data:image/%' );
+        if ( error ) throw new Error( `Could not verify ${ table }.${ column }: ${ error.message }` );
+        remainingCount += count || 0;
+    }
+
+    const { data: products, error: productsError } = await supabase.from( 'products' )
+        .select( 'id,product_metadata' );
+    if ( productsError )
+        throw new Error( `Could not verify product size charts: ${ productsError.message }` );
+    remainingCount += ( products || [] ).filter( row =>
+        typeof row.product_metadata?.size_chart === 'string'
+        && row.product_metadata.size_chart.startsWith( 'data:image/' )
+    ).length;
+
+    if ( remainingCount > 0 )
+        throw new Error( `Migration finished with ${ remainingCount } embedded image reference(s) remaining. Re-run it to continue.` );
+    console.log( 'Verified that no embedded image data remains in product images, variants, categories, or size charts.' );
 }
 
 main().catch( error =>

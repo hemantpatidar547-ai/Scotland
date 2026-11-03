@@ -76,6 +76,7 @@ export async function syncCashfreeCheckout ( cashfreeOrderId: string ): Promise<
 
     if ( session.order_id )
     {
+        bustProductCache();
         const { data: order, error } = await db.from( 'orders' )
             .select( 'order_number' )
             .eq( 'id', session.order_id )
@@ -169,6 +170,7 @@ export async function syncCashfreeCheckout ( cashfreeOrderId: string ): Promise<
         if ( finalizedSession.status === 'refund_required' )
             return { status: 'refund_required' };
 
+        bustProductCache();
         const order = Array.isArray( finalized ) ? finalized[ 0 ] : finalized;
         if ( !order?.order_id )
         {

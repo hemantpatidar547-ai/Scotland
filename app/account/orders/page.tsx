@@ -6,6 +6,8 @@ import { getSupabaseAdmin } from '@/lib/supabase/db';
 import RefreshOnInterval from '@/components/RefreshOnInterval';
 
 type OrderItemSnapshot = {
+    productId?: string;
+    deletedProduct?: boolean;
     name?: string;
     image?: string;
     size?: string;
@@ -63,10 +65,10 @@ export default async function Orders ()
                                     { items.slice( 0, 4 ).map( ( item, index ) => (
                                         <div className="flex items-center gap-3 text-sm" key={ `${ item.name }-${ index }` }>
                                             <div className="relative h-16 w-12 bg-stone">
-                                                <Image src={ item.image || '/images/brand/scotland-lion.png' } alt={ item.name || 'Purchased product' } fill className="object-cover" sizes="48px" />
+                                                <Image src={ item.image || '/images/brand/scotland-lion.png' } alt={ item.deletedProduct ? 'Deleted product' : item.name || 'Purchased product' } fill className="object-cover" sizes="48px" />
                                             </div>
                                             <div>
-                                                <p className="font-medium">{ item.name || 'Product' }</p>
+                                                <p className="font-medium">{ item.deletedProduct ? 'Deleted product' : item.name || 'Product' }</p>
                                                 <p className="text-xs text-zinc-500">{ item.color } · { item.size } · Qty { item.quantity || 1 }</p>
                                             </div>
                                         </div>

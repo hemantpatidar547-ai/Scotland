@@ -557,7 +557,7 @@ export default function AdminOrders ()
                                                 { order.items?.map( ( item, i ) => (
                                                     <div key={ i } className="flex items-center gap-2 text-xs border-b border-stone/30 pb-2 last:border-0 last:pb-0">
                                                         <div className="flex-1">
-                                                            <span className="font-semibold block truncate" title={ item.name }>{ item.name }</span>
+                                                            <span className="font-semibold block truncate" title={ item.deletedProduct ? 'Deleted product' : item.name }>{ item.deletedProduct ? 'Deleted product' : item.name }</span>
                                                             <span className="text-zinc-500">Qty: { item.quantity } | { item.size } | { item.color }</span>
                                                         </div>
                                                     </div>

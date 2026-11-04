@@ -9,6 +9,7 @@ import RefreshOnInterval from '@/components/RefreshOnInterval';
 
 type OrderItemSnapshot = {
     productId?: string;
+    deletedProduct?: boolean;
     name?: string;
     image?: string;
     size?: string;
@@ -81,11 +82,11 @@ export default async function OrderDetail ( { params }: { params: Promise<{ id: 
                     { items.map( ( item, index ) => (
                         <article className="flex gap-4 p-5" key={ `${ item.productId || item.name }-${ index }` }>
                             <div className="relative h-28 w-20 shrink-0 bg-stone">
-                                <Image src={ item.image || '/images/brand/scotland-lion.png' } alt={ item.name || 'Purchased product' } fill className="object-cover" sizes="80px" />
+                                <Image src={ item.image || '/images/brand/scotland-lion.png' } alt={ item.deletedProduct ? 'Deleted product' : item.name || 'Purchased product' } fill className="object-cover" sizes="80px" />
                             </div>
                             <div className="flex flex-1 justify-between gap-3">
                                 <div>
-                                    <h2 className="font-semibold">{ item.name || 'Product' }</h2>
+                                    <h2 className="font-semibold">{ item.deletedProduct ? 'Deleted product' : item.name || 'Product' }</h2>
                                     <p className="mt-1 text-sm text-zinc-500">{ item.color } · { item.size } · Qty { item.quantity || 1 }</p>
                                 </div>
                                 <p className="font-medium">₹{ Number( item.totalPrice ?? Number( item.price || 0 ) * Number( item.quantity || 1 ) ).toLocaleString( 'en-IN' ) }</p>

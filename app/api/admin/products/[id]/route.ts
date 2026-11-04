@@ -311,16 +311,26 @@ export async function DELETE ( request: Request, props: { params: Promise<{ id: 
     const params = await props.params;
     if ( !supabaseAdmin ) return NextResponse.json( { error: 'Supabase is not configured' }, { status: 503 } );
 
-    await supabaseAdmin.from( 'product_images' ).delete().eq( 'product_id', params.id );
-    await supabaseAdmin.from( 'product_variants' ).delete().eq( 'product_id', params.id );
+    const { error } = await supabaseAdmin.rpc( 'delete_catalog_product', {
+        p_product_id: params.id,
+    } );
+    if ( error )
+    {
+        if ( error.code === 'PGRST202' && error.message.includes( 'delete_catalog_product' ) )
+        {
+            return NextResponse.json(
+                { error: 'Product deletion setup is incomplete. Run supabase/migrations/0026_safe_product_deletion.sql in the Supabase SQL Editor.' },
+                { status: 503 }
+            );
+        }
+        if ( error.code === 'P0002' )
+        {
+            return NextResponse.json( { error: 'Product not found.' }, { status: 404 } );
+        }
+        console.error( `Could not delete product ${ params.id }:`, error );
+        return NextResponse.json( { error: 'Could not delete this product. No product or order data was changed.' }, { status: 409 } );
+    }
 
-    const { error } = await supabaseAdmin
-        .from( 'products' )
-        .delete()
-        .eq( 'id', params.id );
-
-    if ( error ) return NextResponse.json( { error: error.message }, { status: 400 } );
-
-    bustProductCache(); // clear in-memory cache after deletion
+    bustProductCache();
     return NextResponse.json( { success: true } );
 }

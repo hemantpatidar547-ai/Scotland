@@ -10,7 +10,7 @@ export function DeleteProductButton ( { productId }: { productId: string } )
 
     const remove = async () =>
     {
-        if ( !window.confirm( 'Delete this product permanently? It will be removed from the catalog, carts, and wishlist.' ) ) return;
+        if ( !window.confirm( 'Delete this product from the catalog? It will be removed from carts and wishlists. Existing order history will be kept.' ) ) return;
 
         setLoading( true );
         try

@@ -29,6 +29,7 @@ export function ProductDetails ( { product, recommendedProducts }: { product: Pr
   const [ added, setAdded ] = useState( false );
   const [ shareStatus, setShareStatus ] = useState( '' );
   const [ activeImg, setActiveImg ] = useState( 0 );
+  const galleryRef = useRef<HTMLDivElement>( null );
   const [ activeTab, setActiveTab ] = useState<'details' | 'shipping'>( 'details' );
   const { addToCart, toggleFavorite, favorites, isReady, syncError } = useStore();
   const router = useRouter();
@@ -123,6 +124,15 @@ export function ProductDetails ( { product, recommendedProducts }: { product: Pr
     ? Math.round( ( ( product.mrp - product.salePrice ) / product.mrp ) * 100 )
     : product.discount || 0;
   const selectedVariantStock = inventoryVariants?.find( variant => variant.size === size && variant.color === color )?.stockQuantity;
+  const galleryImages = Array.from( new Set( [ product.image, ...product.images ].filter( Boolean ) ) );
+
+  const scrollToImage = ( index: number ) =>
+  {
+    const gallery = galleryRef.current;
+    if ( !gallery ) return;
+    gallery.scrollTo( { left: gallery.clientWidth * index, behavior: 'smooth' } );
+    setActiveImg( index );
+  };
 
   return (
     <>
@@ -141,18 +151,79 @@ export function ProductDetails ( { product, recommendedProducts }: { product: Pr
 
           {/* ── Images ── */ }
           <div className="lg:col-span-2">
-            {/* Main image */ }
-            <div className="relative aspect-[.85] w-full overflow-hidden rounded bg-stone">
-              <Image
-                src={ product.images[ activeImg ] || product.image }
-                alt={ activeImg === 0 ? product.image_alt_text || product.name : `${ product.name } product image ${ activeImg + 1 }` }
-                fill
-                className="object-cover transition-opacity duration-300"
-                sizes="(max-width:1024px) 100vw, 40vw"
-                priority
-                unoptimized={ ( product.images[ activeImg ] || product.image ).startsWith( 'data:' ) }
-              />
+            <div
+              ref={ galleryRef }
+              aria-label="Product images"
+              aria-roledescription="carousel"
+              className="relative flex aspect-[.85] w-full snap-x snap-mandatory overflow-x-auto rounded bg-stone [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              onScroll={ event =>
+              {
+                const gallery = event.currentTarget;
+                if ( gallery.clientWidth )
+                {
+                  setActiveImg( Math.round( gallery.scrollLeft / gallery.clientWidth ) );
+                }
+              } }
+            >
+              { galleryImages.map( ( image, index ) => (
+                <div key={ image } className="relative h-full w-full shrink-0 snap-center">
+                  <Image
+                    src={ image }
+                    alt={ index === 0 ? product.image_alt_text || product.name : `${ product.name } product image ${ index + 1 }` }
+                    fill
+                    className="object-cover"
+                    sizes="(max-width:1024px) 100vw, 40vw"
+                    priority={ index === 0 }
+                    unoptimized={ image.startsWith( 'data:' ) }
+                  />
+                </div>
+              ) ) }
+              { galleryImages.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Previous product image"
+                    onClick={ () => scrollToImage( Math.max( 0, activeImg - 1 ) ) }
+                    disabled={ activeImg === 0 }
+                    className="absolute left-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-xl text-navy shadow transition hover:bg-white disabled:opacity-40"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Next product image"
+                    onClick={ () => scrollToImage( Math.min( galleryImages.length - 1, activeImg + 1 ) ) }
+                    disabled={ activeImg === galleryImages.length - 1 }
+                    className="absolute right-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-xl text-navy shadow transition hover:bg-white disabled:opacity-40"
+                  >
+                    ›
+                  </button>
+                </>
+              ) }
             </div>
+            { galleryImages.length > 1 && (
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label="Choose a product image">
+                { galleryImages.map( ( image, index ) => (
+                  <button
+                    key={ image }
+                    type="button"
+                    aria-label={ `Show product image ${ index + 1 }` }
+                    aria-current={ activeImg === index ? 'true' : undefined }
+                    onClick={ () => scrollToImage( index ) }
+                    className={ `relative aspect-square w-16 shrink-0 overflow-hidden rounded border transition ${ activeImg === index ? 'border-navy ring-1 ring-navy' : 'border-stone hover:border-navy' }` }
+                  >
+                    <Image
+                      src={ image }
+                      alt=""
+                      fill
+                      className="object-cover"
+                      sizes="64px"
+                      unoptimized={ image.startsWith( 'data:' ) }
+                    />
+                  </button>
+                ) ) }
+              </div>
+            ) }
           </div>
 
           {/* ── Details ── */ }

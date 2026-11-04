@@ -336,8 +336,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
             } );
             if ( res.ok )
             {
-                alert( initialData ? '✅ Product updated successfully!' : '✅ Product saved successfully!' );
-                router.push( '/admin/products' );
+                router.replace( initialData ? '/admin/products?updated=1' : '/admin/products?created=1' );
             } else
             {
                 const err = await res.json().catch( () => ( { error: 'Could not save product.' } ) );

@@ -79,11 +79,19 @@ export async function POST ( request: Request )
         return NextResponse.json( { error: 'Canonical URL must be a valid public HTTP or HTTPS URL.' }, { status: 400 } );
 
     const normalizedSku = payload.sku.trim().toUpperCase();
-    const { data: existingSku, error: skuLookupError } = await supabaseAdmin
-        .from( 'products' )
-        .select( 'id' )
-        .eq( 'sku', normalizedSku )
-        .maybeSingle();
+    const baseSlug = ( payload.slug || payload.name )
+        .trim()
+        .toLowerCase()
+        .normalize( 'NFKD' )
+        .replace( /[\u0300-\u036f]/g, '' )
+        .replace( /[^a-z0-9]+/g, '-' )
+        .replace( /(^-|-$)/g, '' );
+    let uniqueSlug = baseSlug;
+    const [ skuLookup, slugLookup ] = await Promise.all( [
+        supabaseAdmin.from( 'products' ).select( 'id' ).eq( 'sku', normalizedSku ).maybeSingle(),
+        supabaseAdmin.from( 'products' ).select( 'id' ).eq( 'slug', uniqueSlug ).maybeSingle(),
+    ] );
+    const { data: existingSku, error: skuLookupError } = skuLookup;
 
     if ( skuLookupError )
     {
@@ -95,19 +103,7 @@ export async function POST ( request: Request )
         return NextResponse.json( { error: `SKU ${ normalizedSku } already exists. Use a unique SKU.` }, { status: 409 } );
     }
 
-    const baseSlug = ( payload.slug || payload.name )
-        .trim()
-        .toLowerCase()
-        .normalize( 'NFKD' )
-        .replace( /[\u0300-\u036f]/g, '' )
-        .replace( /[^a-z0-9]+/g, '-' )
-        .replace( /(^-|-$)/g, '' );
-    let uniqueSlug = baseSlug;
-    const { data: existingSlug, error: slugLookupError } = await supabaseAdmin
-        .from( 'products' )
-        .select( 'id' )
-        .eq( 'slug', uniqueSlug )
-        .maybeSingle();
+    const { data: existingSlug, error: slugLookupError } = slugLookup;
 
     if ( slugLookupError )
     {
@@ -129,11 +125,11 @@ export async function POST ( request: Request )
     {
         const categoryName = payload.category.trim();
         const categorySlug = categoryName.toLowerCase().replace( /[^a-z0-9]+/g, '-' ).replace( /(^-|-$)/g, '' );
-        const { data: existingCategoryByName, error: categoryNameLookupError } = await supabaseAdmin
-            .from( 'categories' )
-            .select( 'id' )
-            .eq( 'name', categoryName )
-            .maybeSingle();
+        const [ categoryNameLookup, categorySlugLookup ] = await Promise.all( [
+            supabaseAdmin.from( 'categories' ).select( 'id' ).eq( 'name', categoryName ).maybeSingle(),
+            supabaseAdmin.from( 'categories' ).select( 'id' ).eq( 'slug', categorySlug ).maybeSingle(),
+        ] );
+        const { data: existingCategoryByName, error: categoryNameLookupError } = categoryNameLookup;
 
         if ( categoryNameLookupError )
         {
@@ -146,11 +142,7 @@ export async function POST ( request: Request )
         }
         else
         {
-            const { data: existingCategoryBySlug, error: categorySlugLookupError } = await supabaseAdmin
-                .from( 'categories' )
-                .select( 'id' )
-                .eq( 'slug', categorySlug )
-                .maybeSingle();
+            const { data: existingCategoryBySlug, error: categorySlugLookupError } = categorySlugLookup;
             if ( categorySlugLookupError )
                 return NextResponse.json( { error: 'Could not validate category URL. Please try again.' }, { status: 503 } );
 
@@ -262,32 +254,39 @@ export async function POST ( request: Request )
             stock_quantity: variant.stockQuantity,
         } ) );
 
-    const { error: variantsError } = await supabaseAdmin.from( 'product_variants' ).insert( variants );
-    if ( variantsError )
-    {
-        await supabaseAdmin.from( 'products' ).delete().eq( 'id', product.id );
-        return NextResponse.json( { error: variantsError.message }, { status: 400 } );
-    }
-
     const imageUrls = [ ...( payload.image ? [ payload.image ] : [] ), ...( payload.images || [] ).filter( image => image !== payload.image ) ];
-    if ( imageUrls.length )
+    const [ variantsResult, imagesResult ] = await Promise.all( [
+        supabaseAdmin.from( 'product_variants' ).insert( variants ),
+        imageUrls.length
+            ? supabaseAdmin.from( 'product_images' ).insert(
+                imageUrls.map( ( image_url, index ) => ( {
+                    product_id: product.id,
+                    image_url,
+                    alt_text: index === 0
+                        ? payload.image_alt_text?.trim() || payload.name
+                        : `${ payload.name } - product view ${ index + 1 }`,
+                    display_order: index,
+                    is_primary: index === 0,
+                } ) )
+            )
+            : Promise.resolve( { error: null } ),
+    ] );
+
+    if ( variantsResult.error || imagesResult.error )
     {
-        const { error: imagesError } = await supabaseAdmin.from( 'product_images' ).insert(
-            imageUrls.map( ( image_url, index ) => ( {
-                product_id: product.id,
-                image_url,
-                alt_text: index === 0
-                    ? payload.image_alt_text?.trim() || payload.name
-                    : `${ payload.name } - product view ${ index + 1 }`,
-                display_order: index,
-                is_primary: index === 0,
-            } ) )
-        );
-        if ( imagesError )
+        const cleanupResult = await supabaseAdmin.from( 'products' ).delete().eq( 'id', product.id );
+        if ( cleanupResult.error )
         {
-            await supabaseAdmin.from( 'products' ).delete().eq( 'id', product.id );
-            return NextResponse.json( { error: imagesError.message }, { status: 400 } );
+            console.error( `Could not roll back incomplete product ${ product.id }:`, cleanupResult.error );
+            return NextResponse.json(
+                { error: 'Product setup was incomplete and automatic cleanup failed. Contact support before retrying.' },
+                { status: 500 }
+            );
         }
+        return NextResponse.json(
+            { error: variantsResult.error?.message || imagesResult.error?.message || 'Could not save product images.' },
+            { status: 400 }
+        );
     }
 
     bustProductCache();

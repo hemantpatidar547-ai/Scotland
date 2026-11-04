@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Product } from '@/types/product';
 import { trackAnalyticsEvent } from '@/lib/analytics';
+import { getBuyThreeTshirtGiftCount, type PromoGiftSelection } from '@/lib/buy-3-get-tshirt';
 
 export type CartItem = {
     product: Product;
@@ -14,12 +15,15 @@ export type CartItem = {
 
 type Store = {
     cart: CartItem[];
+    promoGifts: PromoGiftSelection[];
     favorites: string[];
     isReady: boolean;
     syncError: string | null;
     addToCart: ( product: Product, size: string, color: string ) => Promise<boolean>;
     removeFromCart: ( itemKey: string ) => void;
     setQty: ( itemKey: string, quantity: number ) => void;
+    addPromoGift: ( gift: PromoGiftSelection ) => boolean;
+    removePromoGift: ( index: number ) => void;
     toggleFavorite: ( id: string ) => void;
     clearCart: () => void;
 };
@@ -33,6 +37,7 @@ type StoredAccountState = {
 const StoreContext = createContext<Store | null>( null );
 const GUEST_CART_KEY = 'scotland-cart';
 const GUEST_FAVORITES_KEY = 'scotland-favorites';
+const PROMO_GIFTS_KEY = 'scotland-buy-3-get-tshirt-gifts';
 const PENDING_ADD_TO_BAG_KEY = 'scotland-pending-add-to-bag';
 
 export function cartItemKey ( item: Pick<CartItem, 'product' | 'size' | 'color'> ): string
@@ -70,6 +75,7 @@ function sendProductToLogin ( product: Product, size: string, color: string )
 export function StoreProvider ( { children }: { children: React.ReactNode } )
 {
     const [ cart, setCart ] = useState<CartItem[]>( [] );
+    const [ promoGifts, setPromoGifts ] = useState<PromoGiftSelection[]>( [] );
     const [ favorites, setFavorites ] = useState<string[]>( [] );
     const [ hydrated, setHydrated ] = useState( false );
     const [ accountId, setAccountId ] = useState<string | null>( null );
@@ -98,10 +104,12 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
         {
             let guestCart: CartItem[] = [];
             let guestFavorites: string[] = [];
+            let savedPromoGifts: PromoGiftSelection[] = [];
             try
             {
                 const rawCart = JSON.parse( localStorage.getItem( GUEST_CART_KEY ) || '[]' );
                 const rawFavorites = JSON.parse( localStorage.getItem( GUEST_FAVORITES_KEY ) || '[]' );
+                const rawPromoGifts = JSON.parse( localStorage.getItem( PROMO_GIFTS_KEY ) || '[]' );
                 guestCart = Array.isArray( rawCart ) ? rawCart.map( ( item: CartItem ) => ( {
                     ...item,
                     variantId: item.variantId || item.product?.inventoryVariants?.find(
@@ -109,6 +117,14 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
                     )?.id,
                 } ) ).filter( item => item.product?.id && item.quantity > 0 ) : [];
                 guestFavorites = Array.isArray( rawFavorites ) ? rawFavorites : [];
+                savedPromoGifts = Array.isArray( rawPromoGifts ) ? rawPromoGifts.filter( ( gift: PromoGiftSelection ) =>
+                    typeof gift.productId === 'string' &&
+                    typeof gift.variantId === 'string' &&
+                    typeof gift.name === 'string' &&
+                    typeof gift.image === 'string' &&
+                    typeof gift.size === 'string' &&
+                    typeof gift.color === 'string'
+                ) : [];
             } catch ( error )
             {
                 console.warn( 'Could not restore the guest shopping session.', error );
@@ -116,6 +132,7 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
 
             if ( !active ) return;
             setCart( guestCart );
+            setPromoGifts( savedPromoGifts );
             setFavorites( guestFavorites );
             setHydrated( true );
 
@@ -184,6 +201,7 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
         {
             localStorage.setItem( cartKey, JSON.stringify( cart ) );
             localStorage.setItem( wishlistKey, JSON.stringify( favorites ) );
+            localStorage.setItem( PROMO_GIFTS_KEY, JSON.stringify( promoGifts ) );
         } catch ( error )
         {
             console.warn( 'Could not cache the shopping session locally.', error );
@@ -217,7 +235,16 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
         }, 350 );
 
         return () => window.clearTimeout( timer );
-    }, [ accountId, cart, favorites, hydrated, readyToSync ] );
+    }, [ accountId, cart, favorites, promoGifts, hydrated, readyToSync ] );
+
+    useEffect( () =>
+    {
+        const maximumGifts = getBuyThreeTshirtGiftCount(
+            cart.reduce( ( total, item ) => total + item.quantity, 0 )
+        );
+        if ( promoGifts.length > maximumGifts )
+            setPromoGifts( current => current.slice( 0, maximumGifts ) );
+    }, [ cart, promoGifts.length ] );
 
     useEffect( () =>
     {
@@ -272,6 +299,7 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
 
     const value = useMemo<Store>( () => ( {
         cart,
+        promoGifts,
         favorites,
         isReady: readyToSync,
         syncError,
@@ -322,10 +350,25 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
                 const existingItem = nextCart.find( item =>
                     item.product.id === product.id && item.size === size && item.color === color
                 );
+                const selectedVariant = ( existingItem?.product || product ).inventoryVariants?.find(
+                    item => item.id === variantId
+                );
+                const availableStock = selectedVariant?.stockQuantity ?? 0;
+                const requestedQuantity = ( existingItem?.quantity || 0 ) + 1;
+
+                if ( requestedQuantity > availableStock )
+                {
+                    setSyncError(
+                        availableStock > 0
+                            ? `Only ${ availableStock } left for ${ color } / ${ size }. Reduce the quantity in your bag or choose another option.`
+                            : `The ${ color } / ${ size } option is sold out. Choose another option.`
+                    );
+                    return false;
+                }
 
                 if ( existingItem )
                 {
-                    existingItem.quantity = Math.min( 99, existingItem.quantity + 1 );
+                    existingItem.quantity = requestedQuantity;
                 } else
                 {
                     nextCart.push( {
@@ -348,7 +391,16 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
                     } ),
                 } );
                 const saveResult = await saveResponse.json();
-                if ( !saveResponse.ok ) throw new Error( saveResult.error || 'Could not save the item to your account cart.' );
+                if ( !saveResponse.ok )
+                {
+                    const message = saveResult.error || 'Could not save the item to your account cart.';
+                    if ( saveResponse.status === 409 )
+                    {
+                        setSyncError( message );
+                        return false;
+                    }
+                    throw new Error( message );
+                }
 
                 applyAccountState( saveResult.data as StoredAccountState );
                 trackAnalyticsEvent( 'add_to_cart', {
@@ -373,14 +425,40 @@ export function StoreProvider ( { children }: { children: React.ReactNode } )
             }
         },
         removeFromCart: itemKey => setCart( current => current.filter( item => cartItemKey( item ) !== itemKey ) ),
-        setQty: ( itemKey, quantity ) => setCart( current => current.map( item =>
-            cartItemKey( item ) === itemKey ? { ...item, quantity } : item
-        ).filter( item => item.quantity > 0 ) ),
+        setQty: ( itemKey, quantity ) =>
+        {
+            const item = cart.find( candidate => cartItemKey( candidate ) === itemKey );
+            const availableStock = item?.product.inventoryVariants?.find(
+                variant => variant.id === item.variantId
+            )?.stockQuantity;
+            if ( item && availableStock !== undefined && quantity > availableStock )
+            {
+                setSyncError( `Only ${ availableStock } left for ${ item.color } / ${ item.size }. Reduce the quantity or choose another option.` );
+                return;
+            }
+            setCart( current => current.map( item =>
+                cartItemKey( item ) === itemKey ? { ...item, quantity } : item
+            ).filter( item => item.quantity > 0 ) );
+        },
+        addPromoGift: gift =>
+        {
+            const maximumGifts = getBuyThreeTshirtGiftCount(
+                cart.reduce( ( total, item ) => total + item.quantity, 0 )
+            );
+            if ( promoGifts.length >= maximumGifts ) return false;
+            setPromoGifts( current => [ ...current, gift ] );
+            return true;
+        },
+        removePromoGift: index => setPromoGifts( current => current.filter( ( _, giftIndex ) => giftIndex !== index ) ),
         toggleFavorite: id => setFavorites( current => current.includes( id )
             ? current.filter( favorite => favorite !== id )
             : [ ...current, id ] ),
-        clearCart: () => setCart( [] ),
-    } ), [ accountId, cart, favorites, readyToSync, syncError, applyAccountState ] );
+        clearCart: () =>
+        {
+            setCart( [] );
+            setPromoGifts( [] );
+        },
+    } ), [ accountId, cart, promoGifts, favorites, readyToSync, syncError, applyAccountState ] );
 
     return <StoreContext.Provider value={ value }>{ children }</StoreContext.Provider>;
 }

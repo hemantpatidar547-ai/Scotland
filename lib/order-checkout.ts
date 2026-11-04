@@ -1,12 +1,16 @@
 import { z } from 'zod';
+import { getBuyThreeTshirtGiftCount, isBuyThreeTshirtProduct } from '@/lib/buy-3-get-tshirt';
 
-export const checkoutCartSchema = z.array( z.object( {
+export const checkoutCartItemSchema = z.object( {
     productId: z.string().uuid(),
     variantId: z.string().uuid(),
     quantity: z.number().int().min( 1 ).max( 99 ),
     size: z.string().min( 1 ).max( 80 ).optional(),
     color: z.string().min( 1 ).max( 80 ).optional(),
-} ) ).min( 1 ).max( 100 );
+} );
+
+export const checkoutCartSchema = z.array( checkoutCartItemSchema ).min( 1 ).max( 100 );
+export const checkoutPromoGiftItemsSchema = z.array( checkoutCartItemSchema ).max( 100 ).optional();
 
 export const checkoutShippingAddressSchema = z.object( {
     name: z.string().trim().min( 2 ).max( 120 ),
@@ -25,17 +29,25 @@ type CheckoutDatabase = {
 
 export async function priceCheckoutCart (
     db: CheckoutDatabase,
-    cartItems: z.infer<typeof checkoutCartSchema>
+    cartItems: z.infer<typeof checkoutCartSchema>,
+    promoGiftItems: z.infer<typeof checkoutPromoGiftItemsSchema> = []
 )
 {
-    const productIds = Array.from( new Set( cartItems.map( item => item.productId ) ) );
-    const variantIds = Array.from( new Set( cartItems.map( item => item.variantId ) ) );
+    const paidItemCount = cartItems.reduce( ( total, item ) => total + item.quantity, 0 );
+    const requestedGiftCount = promoGiftItems.reduce( ( total, item ) => total + item.quantity, 0 );
+    const allowedGiftCount = getBuyThreeTshirtGiftCount( paidItemCount );
+    if ( requestedGiftCount > allowedGiftCount )
+        throw new Error( 'Your cart does not qualify for that many free T-shirts. Refresh your cart and try again.' );
+
+    const allCartItems = [ ...cartItems, ...promoGiftItems ];
+    const productIds = Array.from( new Set( allCartItems.map( item => item.productId ) ) );
+    const variantIds = Array.from( new Set( allCartItems.map( item => item.variantId ) ) );
     const [ productsResult, variantsResult ] = await Promise.all( [
         db.from( 'products' )
-            .select( 'id, name, sku, price, sale_price, status, product_images(image_url, display_order, is_primary)' )
+            .select( 'id, name, sku, price, sale_price, status, categories(name), product_images(image_url, display_order, is_primary)' )
             .in( 'id', productIds ),
         db.from( 'product_variants' )
-            .select( 'id, product_id, sku, color, size, price, sale_price, is_active' )
+            .select( 'id, product_id, sku, color, size, price, sale_price, is_active, stock_quantity, reserved_quantity' )
             .in( 'id', variantIds )
             .eq( 'is_active', true ),
     ] );
@@ -47,8 +59,9 @@ export async function priceCheckoutCart (
     const variants = new Map<string, any>( ( variantsResult.data || [] ).map( ( variant: any ) => [ variant.id, variant ] ) );
     const quantitiesByVariant = new Map<string, number>();
 
-    const items = cartItems.map( item =>
+    const items = allCartItems.map( ( item, itemIndex ) =>
     {
+        const isFreeGift = itemIndex >= cartItems.length;
         const product = products.get( item.productId );
         const variant = variants.get( item.variantId );
         if ( !product || product.status !== 'active' || !variant || variant.product_id !== product.id )
@@ -60,9 +73,20 @@ export async function priceCheckoutCart (
         {
             throw new Error( 'A selected product size or color no longer matches the cart.' );
         }
+        if ( isFreeGift )
+        {
+            const category = Array.isArray( product.categories )
+                ? product.categories[ 0 ]?.name
+                : product.categories?.name;
+            if ( !isBuyThreeTshirtProduct( product.name, category ) )
+                throw new Error( 'Only an in-stock T-shirt can be selected as the free gift.' );
+            if ( Number( variant.stock_quantity ) - Number( variant.reserved_quantity ) < item.quantity )
+                throw new Error( 'The selected free T-shirt size is no longer in stock. Choose another size.' );
+        }
 
-        const price = Number( variant.sale_price ?? product.sale_price ?? variant.price ?? product.price );
-        if ( !Number.isFinite( price ) || price < 0 ) throw new Error( 'A product price is invalid. Please refresh your cart.' );
+        const listedPrice = Number( variant.sale_price ?? product.sale_price ?? variant.price ?? product.price );
+        if ( !Number.isFinite( listedPrice ) || listedPrice < 0 ) throw new Error( 'A product price is invalid. Please refresh your cart.' );
+        const price = isFreeGift ? 0 : listedPrice;
         quantitiesByVariant.set( variant.id, ( quantitiesByVariant.get( variant.id ) || 0 ) + item.quantity );
 
         const images = [ ...( product.product_images || [] ) ].sort(
@@ -83,6 +107,7 @@ export async function priceCheckoutCart (
             quantity: item.quantity,
             price,
             totalPrice: price * item.quantity,
+            isFreeGift,
         };
     } );
 

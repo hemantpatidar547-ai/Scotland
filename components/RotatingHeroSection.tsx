@@ -22,46 +22,50 @@ export function RotatingHeroSection({
   const [isTransitioning, setIsTransitioning] = useState(false);
 
   useEffect(() => {
+    if (images.length < 2) return;
+    let transitionTimer: number | undefined;
     const interval = setInterval(() => {
       setIsTransitioning(true);
-      setTimeout(() => {
+      transitionTimer = window.setTimeout(() => {
         setCurrentImageIndex((prev) => (prev + 1) % images.length);
         setIsTransitioning(false);
       }, 500);
     }, autoRotateInterval);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (transitionTimer !== undefined) window.clearTimeout(transitionTimer);
+    };
   }, [images.length, autoRotateInterval]);
-
-  const goToImage = (index: number) => {
-    setIsTransitioning(true);
-    setTimeout(() => {
-      setCurrentImageIndex(index);
-      setIsTransitioning(false);
-    }, 500);
-  };
 
   return (
     <section className="relative flex min-h-[560px] items-center overflow-hidden text-white sm:min-h-[620px]">
       {/* Image Container with Rotation */}
       <div className="absolute inset-0 z-0">
-        {images.map((image, index) => (
-          <div
-            key={index}
-            className={`absolute inset-0 z-0 transition-opacity duration-500 ${
-              index === currentImageIndex ? 'opacity-100' : 'opacity-0'
-            }`}
-          >
-            <Image
-              src={image.src}
-              alt={image.alt}
-              fill
-              priority={index === 0}
-              className="object-cover object-center brightness-[.65] sm:brightness-[.52]"
-              sizes="100vw"
-            />
-          </div>
-        ))}
+        {images.map((image, index) => {
+          const isCurrent = index === currentImageIndex;
+          const isNext = index === (currentImageIndex + 1) % images.length;
+          if (!isCurrent && !isNext) return null;
+
+          return (
+            <div
+              key={image.src}
+              className={`absolute inset-0 z-0 transition-opacity duration-500 ${
+                isCurrent && !isTransitioning ? 'opacity-100' : 'opacity-0'
+              }`}
+            >
+              <Image
+                src={image.src}
+                alt={image.alt}
+                fill
+                priority={index === 0}
+                quality={70}
+                className="object-cover object-center brightness-[.65] sm:brightness-[.52]"
+                sizes="100vw"
+              />
+            </div>
+          );
+        })}
       </div>
 
       {/* Gradient Overlay */}

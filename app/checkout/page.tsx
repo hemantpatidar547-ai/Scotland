@@ -1,10 +1,12 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
 import { load as loadCashfree } from '@cashfreepayments/cashfree-js';
 import { useStore } from '@/components/StoreProvider';
 import { trackAnalyticsEvent } from '@/lib/analytics';
+import { getBuyThreeTshirtGiftCount } from '@/lib/buy-3-get-tshirt';
 
 const money = ( n: number ) => new Intl.NumberFormat( 'en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 } ).format( n );
 const CASHFREE_CHECKOUT_DETAILS_KEY = 'scotland-cashfree-checkout-details';
@@ -36,7 +38,7 @@ type DeliveryCheck = {
 
 export default function Checkout ()
 {
-    const { cart, clearCart, isReady } = useStore();
+    const { cart, promoGifts, clearCart, isReady } = useStore();
     const router = useRouter();
     const [ done, setDone ] = useState( false );
     const [ paymentMethod, setPaymentMethod ] = useState<'cod' | 'cashfree'>( 'cod' );
@@ -69,6 +71,8 @@ export default function Checkout ()
     const [ streetAddress, setStreetAddress ] = useState( '' );
 
     const subtotal = cart.reduce( ( a, x ) => a + ( x.product.salePrice || x.product.price ) * x.quantity, 0 );
+    const paidItemCount = cart.reduce( ( count, item ) => count + item.quantity, 0 );
+    const eligibleGiftCount = getBuyThreeTshirtGiftCount( paidItemCount );
     const freeDelivery = freeDeliveryOffer || subtotal >= 4000;
     const total = subtotal + ( deliveryCharge ?? 0 );
 
@@ -244,6 +248,13 @@ export default function Checkout ()
                 color: item.color,
                 quantity: item.quantity,
             } ) ),
+            promoGiftItems: promoGifts.map( gift => ( {
+                productId: gift.productId,
+                variantId: gift.variantId,
+                size: gift.size,
+                color: gift.color,
+                quantity: 1,
+            } ) ),
             shippingAddress,
             paymentMethod,
             returnPolicyAccepted,
@@ -301,6 +312,13 @@ export default function Checkout ()
                         size: item.size,
                         color: item.color,
                         quantity: item.quantity,
+                    } ) ),
+                    promoGiftItems: promoGifts.map( gift => ( {
+                        productId: gift.productId,
+                        variantId: gift.variantId,
+                        size: gift.size,
+                        color: gift.color,
+                        quantity: 1,
                     } ) ),
                     shippingAddress,
                     returnPolicyAccepted,
@@ -578,6 +596,14 @@ export default function Checkout ()
     return (
         <main className="shell py-12">
             <h1 className="display text-5xl">Checkout</h1>
+            { eligibleGiftCount > 0 && <section className="mt-5 border border-gold/40 bg-[#f7f3e8] p-4 text-sm">
+                <p className="font-semibold text-navy">Buy 3, get a T-shirt free.</p>
+                { promoGifts.length === eligibleGiftCount
+                    ? <p className="mt-1 text-zinc-600">Your { promoGifts.length } free T-shirt{ promoGifts.length === 1 ? '' : 's' } { promoGifts.length === 1 ? 'is' : 'are' } selected.</p>
+                    : <p className="mt-1 text-zinc-600">
+                        { promoGifts.length } of { eligibleGiftCount } free T-shirt{ eligibleGiftCount === 1 ? '' : 's' } selected. <Link className="font-semibold text-highland underline" href="/cart">Choose your free T-shirt in your bag</Link>.
+                    </p> }
+            </section> }
             <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_360px]">
                 { orderPaused && <div className="mb-6 border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" role="status">
                     <p className="font-semibold">Orders are temporarily paused</p>
@@ -716,12 +742,16 @@ export default function Checkout ()
                 {/* Order Summary */ }
                 <aside className="h-fit bg-white p-6 border border-stone">
                     <h2 className="display text-2xl">Your order</h2>
-                    { cart.map( x => (
-                        <div key={ x.product.id } className="mt-4 flex justify-between text-sm">
+                    { cart.map( ( x, index ) => (
+                        <div key={ `${ x.product.id }-${ x.variantId || index }` } className="mt-4 flex justify-between text-sm">
                             <span>{ x.product.name } × { x.quantity }</span>
-                            <span>{ money( x.product.price * x.quantity ) }</span>
+                            <span>{ money( ( x.product.salePrice || x.product.price ) * x.quantity ) }</span>
                         </div>
                     ) ) }
+                    { promoGifts.map( gift => <div key={ `${ gift.variantId }-${ gift.size }-${ gift.color }` } className="mt-4 flex justify-between gap-3 text-sm text-emerald-700">
+                        <span>{ gift.name } · { gift.color } · { gift.size } <b>× 1 (Free gift)</b></span>
+                        <span className="font-semibold">FREE</span>
+                    </div> ) }
 
                     <div className="mt-5 border-t border-stone pt-4 space-y-2">
                         <div className="flex justify-between text-sm text-zinc-500">

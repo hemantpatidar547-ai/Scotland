@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
@@ -23,18 +24,25 @@ export function Header ()
   const count = cart.reduce( ( total, item ) => total + item.quantity, 0 );
 
   return <>
-    <div className="flex min-h-8 items-center justify-center bg-navy px-3 py-1 text-center text-[9px] uppercase tracking-[.08em] text-white sm:text-[10px] sm:tracking-[.1em]">Free shipping on orders above ₹4,000 <span className="ml-1 hidden text-gold sm:inline">• Easy 14-day returns</span></div>
+    <Link href="/shop" className="flex min-h-8 items-center justify-center bg-navy px-3 py-1 text-center text-[9px] font-semibold uppercase tracking-[.08em] text-white transition hover:bg-navy/95 sm:text-[10px] sm:tracking-[.1em]">
+      Buy 3, get 1 T-shirt free
+      <span className="ml-1 hidden text-gold sm:inline">• Add any 3 items and choose your free T-shirt in your bag</span>
+    </Link>
     <header className="sticky top-0 z-30 border-b border-stone bg-cream/95 backdrop-blur">
-      <div className="shell relative flex h-[68px] items-center justify-between gap-2 sm:h-[84px] sm:gap-5">
-        <Link href="/" className="flex w-fit items-center gap-2.5 text-navy" aria-label="SCOTLAND home">
-          <img src="/images/brand/scotland-lion.png" alt="" className="h-12 w-9 object-contain mix-blend-multiply sm:h-14 sm:w-11" />
-          <span className="font-display text-[1.35rem] font-semibold tracking-[.12em] sm:text-3xl sm:tracking-[.16em]">SCOTLAND</span>
+      <div className="shell relative flex h-[68px] items-center justify-between gap-1.5 px-3 sm:h-[84px] sm:gap-5 sm:px-8 lg:px-14">
+        <Link href="/" className="flex w-fit shrink-0 items-center gap-1.5 text-navy sm:gap-2.5" aria-label="SCOTLAND home">
+          <Image src="/images/brand/scotland-lion.png" alt="" width={ 88 } height={ 112 } sizes="88px" priority className="h-10 w-7 shrink-0 object-contain mix-blend-multiply sm:h-14 sm:w-11" />
+          <span className="whitespace-nowrap font-display text-base font-semibold tracking-[.08em] sm:text-3xl sm:tracking-[.16em]">SCOTLAND</span>
         </Link>
         <nav className="hidden h-full items-center gap-11 lg:absolute lg:left-1/2 lg:flex lg:-translate-x-1/2" aria-label="Primary navigation">
           { navItems.map( ( [ name, href ] ) => <Link key={ name } href={ href } className={ `relative flex h-full items-center whitespace-nowrap text-[11px] font-semibold uppercase tracking-[.1em] transition hover:text-gold ${ pathname === href ? 'text-gold after:absolute after:bottom-[17px] after:left-0 after:right-0 after:h-[2px] after:bg-gold' : 'text-navy' }` }>{ name }</Link> ) }
         </nav>
-        <div className="flex items-center justify-end gap-3 border-navy/15 text-navy lg:border-l lg:ml-6 lg:pl-6">
-          <button className="grid h-10 w-8 place-items-center lg:hidden" onClick={ () => setOpen( !open ) } aria-label="Toggle menu"><span className="text-2xl leading-none">{ open ? '×' : '☰' }</span></button>
+        <div className="flex shrink-0 items-center justify-end gap-1 border-navy/15 text-navy sm:gap-3 lg:border-l lg:ml-6 lg:pl-6">
+          <button className="grid h-9 w-8 shrink-0 place-items-center lg:hidden" onClick={ () => setOpen( !open ) } aria-label="Toggle menu" aria-expanded={ open }>
+            { open
+              ? <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+              : <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg> }
+          </button>
           <button onClick={ () => setIsSearchOpen( true ) } className="grid h-8 w-7 place-items-center [&>svg]:h-5 [&>svg]:w-5 hover:text-gold transition" aria-label="Search products"><SearchIcon /></button>
           <Link href="/account" className="grid h-8 w-7 place-items-center [&>svg]:h-5 [&>svg]:w-5" aria-label="Account"><AccountIcon /></Link>
           <Link href="/cart" className="relative grid h-8 w-7 place-items-center [&>svg]:h-5 [&>svg]:w-5" aria-label={ `Shopping bag${ count ? `, ${ count } items` : '' }` }><BagIcon />{ count > 0 && <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[8px] font-bold text-white">{ count }</span> }</Link>

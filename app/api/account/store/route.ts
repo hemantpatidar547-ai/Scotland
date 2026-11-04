@@ -79,7 +79,7 @@ async function syncCart (
 
     const submittedVariants = cart.length
         ? await db.from( 'product_variants' )
-            .select( 'id, product_id, size, color, is_active' )
+            .select( 'id, product_id, size, color, is_active, stock_quantity, reserved_quantity' )
             .in( 'id', Array.from( new Set( cart.map( item => item.variantId ) ) ) )
         : { data: [], error: null };
     if ( submittedVariants.error ) throw submittedVariants.error;
@@ -97,6 +97,20 @@ async function syncCart (
             ( variant.size || 'One size' ) !== item.size || ( variant.color || 'Default' ) !== item.color )
         {
             throw new Error( 'A selected product variant no longer matches the cart.' );
+        }
+
+        const requestedQuantity = combined.get( variantId )?.quantity ?? 0;
+        const availableStock = Math.max(
+            0,
+            Number( variant.stock_quantity ) - Number( variant.reserved_quantity )
+        );
+        if ( requestedQuantity > availableStock )
+        {
+            throw new Error(
+                availableStock > 0
+                    ? `Only ${ availableStock } left for ${ item.color } / ${ item.size }. Reduce the quantity and try again.`
+                    : `The ${ item.color } / ${ item.size } option is sold out. Choose another option.`
+            );
         }
     }
 
@@ -235,9 +249,15 @@ export async function PUT ( request: NextRequest )
             );
         }
         const { message } = getDatabaseError( error );
-        const unavailable = message.toLowerCase().includes( 'stock' ) || message.toLowerCase().includes( 'available' );
+        const unavailable = /stock|available|sold out/i.test( message );
         return NextResponse.json(
-            { error: unavailable ? 'A cart item is no longer available in that quantity.' : 'Could not save your cart and wishlist.' },
+            {
+                error: unavailable
+                    ? message.startsWith( 'Only ' ) || message.includes( 'option is sold out' )
+                        ? message
+                        : 'Stock changed while saving. Refresh your bag and choose an available quantity.'
+                    : 'Could not save your cart and wishlist.',
+            },
             { status: unavailable ? 409 : 500 }
         );
     }

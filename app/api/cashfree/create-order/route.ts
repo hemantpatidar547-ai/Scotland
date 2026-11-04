@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
-import { checkoutCartSchema, checkoutShippingAddressSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
+import { checkoutCartSchema, checkoutPromoGiftItemsSchema, checkoutShippingAddressSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { DelhiveryServiceError, getDelhiveryDeliveryEstimate } from '@/lib/delhivery/serviceability';
 import { getOrderControlStatus, OrderControlUnavailableError } from '@/lib/order-control';
@@ -12,6 +12,7 @@ import { getCashfreeCheckoutMode, getCashfreeClient } from '@/lib/cashfree';
 const requestSchema = z.object( {
     checkoutKey: z.string().uuid(),
     cartItems: checkoutCartSchema,
+    promoGiftItems: checkoutPromoGiftItemsSchema.default( [] ),
     shippingAddress: checkoutShippingAddressSchema,
     returnPolicyAccepted: z.literal( true ),
 } );
@@ -72,7 +73,10 @@ export async function POST ( request: NextRequest )
         const auth = await createClient();
         const { data: { user } } = await auth.auth.getUser();
         const userId = user?.id || null;
-        const fingerprint = getFingerprint( userId, parsed.data.cartItems, parsed.data.shippingAddress );
+        const fingerprint = getFingerprint( userId, {
+            cartItems: parsed.data.cartItems,
+            promoGiftItems: parsed.data.promoGiftItems,
+        }, parsed.data.shippingAddress );
         const db = getSupabaseAdmin();
 
         let { data: session, error: sessionError } = await db.from( 'cashfree_checkout_sessions' )
@@ -86,7 +90,7 @@ export async function POST ( request: NextRequest )
 
         if ( !session )
         {
-            const pricedCart = await priceCheckoutCart( db, parsed.data.cartItems );
+            const pricedCart = await priceCheckoutCart( db, parsed.data.cartItems, parsed.data.promoGiftItems );
             const deliveryEstimate = await getDelhiveryDeliveryEstimate( parsed.data.shippingAddress.postalCode );
             if ( !deliveryEstimate.serviceable )
                 return NextResponse.json( { error: 'Sorry, delivery is not available at this PIN code.' }, { status: 422 } );
@@ -212,8 +216,7 @@ export async function POST ( request: NextRequest )
             return NextResponse.json( { error: 'Delivery availability is temporarily unavailable. Please try again.' }, { status: 503 } );
 
         const message = error instanceof Error ? error.message : '';
-        const unavailable = message.toLowerCase().includes( 'no longer available' ) ||
-            message.toLowerCase().includes( 'no longer matches' );
+        const unavailable = /no longer available|no longer matches|does not qualify|free t-shirt|in-stock t-shirt|free gift|selected product size or color/i.test( message );
         return NextResponse.json(
             { error: unavailable ? message : 'Could not initialize Cashfree payment. Please try again.' },
             { status: unavailable ? 409 : 500 }

@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { createClient } from '@/lib/supabase/ssr-server';
 import { getSupabaseAdmin } from '@/lib/supabase/db';
 import { bustProductCache } from '@/lib/data';
-import { checkoutCartSchema, checkoutShippingAddressSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
+import { checkoutCartSchema, checkoutPromoGiftItemsSchema, checkoutShippingAddressSchema, getCheckoutShippingCost, priceCheckoutCart } from '@/lib/order-checkout';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { DelhiveryServiceError, getDelhiveryDeliveryEstimate } from '@/lib/delhivery/serviceability';
 import { getOrderControlStatus, OrderControlUnavailableError } from '@/lib/order-control';
@@ -29,8 +29,10 @@ export async function POST ( request: NextRequest )
 
         const body = await request.json();
         const cart = checkoutCartSchema.safeParse( body.cartItems );
+        const promoGifts = checkoutPromoGiftItemsSchema.safeParse( body.promoGiftItems ?? [] );
         const address = checkoutShippingAddressSchema.safeParse( body.shippingAddress );
         if ( !cart.success ) return NextResponse.json( { error: 'Your cart is invalid. Refresh it and try again.' }, { status: 400 } );
+        if ( !promoGifts.success ) return NextResponse.json( { error: 'Your free T-shirt selection is invalid. Refresh your cart and try again.' }, { status: 400 } );
         if ( !address.success ) return NextResponse.json( { error: 'Enter a valid delivery address.' }, { status: 400 } );
         if ( body.paymentMethod !== 'cod' )
         {
@@ -42,7 +44,7 @@ export async function POST ( request: NextRequest )
         const auth = await createClient();
         const { data: { user } } = await auth.auth.getUser();
         const db = getSupabaseAdmin();
-        const pricedCart = await priceCheckoutCart( db, cart.data );
+        const pricedCart = await priceCheckoutCart( db, cart.data, promoGifts.data || [] );
 
         const deliveryEstimate = await getDelhiveryDeliveryEstimate( address.data.postalCode );
         if ( !deliveryEstimate.serviceable )
@@ -143,8 +145,7 @@ export async function POST ( request: NextRequest )
             );
         }
         const message = error instanceof Error ? error.message : '';
-        const unavailable = message.toLowerCase().includes( 'no longer available' ) ||
-            message.toLowerCase().includes( 'no longer matches' );
+        const unavailable = /no longer available|no longer matches|does not qualify|free t-shirt|in-stock t-shirt|free gift|selected product size or color/i.test( message );
         return NextResponse.json(
             { error: unavailable ? message : 'Could not create your order. Please refresh your cart and try again.' },
             { status: unavailable ? 409 : 500 }

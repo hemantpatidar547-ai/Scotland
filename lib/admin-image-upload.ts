@@ -3,6 +3,74 @@
 import { createClient } from '@/lib/supabase/client';
 
 const IMAGE_BUCKET = 'scotland-product-images';
+const IMAGE_UPLOAD_TIMEOUT_MS = 60000;
+
+async function optimizeImage ( file: File ): Promise<File>
+{
+    if ( file.type.toLowerCase() === 'image/gif' || file.size <= 1024 * 1024 || typeof createImageBitmap !== 'function' )
+        return file;
+
+    let bitmap: ImageBitmap;
+    try
+    {
+        bitmap = await createImageBitmap( file );
+    } catch
+    {
+        return file;
+    }
+
+    try
+    {
+        const maxDimension = 1800;
+        const scale = Math.min( 1, maxDimension / Math.max( bitmap.width, bitmap.height ) );
+        const canvas = document.createElement( 'canvas' );
+        canvas.width = Math.max( 1, Math.round( bitmap.width * scale ) );
+        canvas.height = Math.max( 1, Math.round( bitmap.height * scale ) );
+        const context = canvas.getContext( '2d' );
+        if ( !context ) return file;
+
+        context.drawImage( bitmap, 0, 0, canvas.width, canvas.height );
+        const optimized = await new Promise<Blob | null>( resolve => canvas.toBlob( resolve, 'image/webp', 0.82 ) );
+        if ( !optimized || optimized.type !== 'image/webp' || optimized.size >= file.size ) return file;
+
+        const baseName = file.name.replace( /\.[^.]+$/, '' ) || 'product-image';
+        return new File( [ optimized ], `${ baseName }.webp`, { type: 'image/webp', lastModified: file.lastModified } );
+    } finally
+    {
+        bitmap.close();
+    }
+}
+
+function createTimedFetch (): typeof fetch
+{
+    return async ( input, init ) =>
+    {
+        const controller = new AbortController();
+        let timedOut = false;
+        const timeout = setTimeout( () =>
+        {
+            timedOut = true;
+            controller.abort();
+        }, IMAGE_UPLOAD_TIMEOUT_MS );
+        const abortFromCaller = () => controller.abort( init?.signal?.reason );
+        if ( init?.signal?.aborted ) abortFromCaller();
+        else init?.signal?.addEventListener( 'abort', abortFromCaller, { once: true } );
+
+        try
+        {
+            return await fetch( input, { ...init, signal: controller.signal } );
+        } catch ( error )
+        {
+            if ( timedOut )
+                throw new Error( 'Image upload timed out. The image may be too large or the connection is slow; try a smaller image or try again.' );
+            throw error;
+        } finally
+        {
+            clearTimeout( timeout );
+            init?.signal?.removeEventListener( 'abort', abortFromCaller );
+        }
+    };
+}
 
 export async function uploadAdminImage ( file: File ): Promise<string>
 {
@@ -11,13 +79,14 @@ export async function uploadAdminImage ( file: File ): Promise<string>
     if ( file.type.toLowerCase() === 'image/svg+xml' )
         throw new Error( 'SVG images are not supported. Use a raster image format.' );
 
+    const uploadFile = await optimizeImage( file );
     let response: Response;
     try
     {
         response = await fetch( '/api/admin/product-images', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify( { contentType: file.type } ),
+            body: JSON.stringify( { contentType: uploadFile.type } ),
             signal: AbortSignal.timeout( 30000 ),
         } );
     } catch ( error )
@@ -34,7 +103,7 @@ export async function uploadAdminImage ( file: File ): Promise<string>
     let supabase: ReturnType<typeof createClient>;
     try
     {
-        supabase = createClient();
+        supabase = createClient( createTimedFetch() );
     } catch ( error )
     {
         throw error instanceof Error ? error : new Error( 'Supabase image storage is not configured.' );
@@ -45,9 +114,9 @@ export async function uploadAdminImage ( file: File ): Promise<string>
     {
         const uploadResult = await supabase.storage
             .from( IMAGE_BUCKET )
-            .uploadToSignedUrl( result.path, result.token, file, {
+            .uploadToSignedUrl( result.path, result.token, uploadFile, {
                 cacheControl: '31536000',
-                contentType: file.type,
+                contentType: uploadFile.type,
                 upsert: false,
             } );
         uploadError = uploadResult.error;

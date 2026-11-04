@@ -5,6 +5,28 @@ export async function middleware ( request: NextRequest )
 {
     const path = request.nextUrl.pathname;
 
+    // Admin pages and APIs use the signed admin-session cookie, not a Supabase user session.
+    // Admin API handlers verify that cookie themselves, so skip the extra Supabase round trip.
+    if ( path === '/api/admin' || path.startsWith( '/api/admin/' ) )
+        return NextResponse.next();
+
+    if ( path === '/admin' || path.startsWith( '/admin/' ) )
+    {
+        if ( path !== '/admin/login' )
+        {
+            const isAdmin = await verifyAdminSession( request.cookies.get( getAdminSessionCookieName() )?.value );
+            if ( !isAdmin )
+            {
+                const url = request.nextUrl.clone();
+                url.pathname = '/admin/login';
+                url.searchParams.set( 'redirect', path );
+                return NextResponse.redirect( url );
+            }
+        }
+
+        return NextResponse.next();
+    }
+
     // ── Check Supabase session (only if Supabase env vars present) ──
     let supabaseUser: { email?: string | null } | null = null;
     let supabaseResponse: NextResponse | null = null;
@@ -25,19 +47,6 @@ export async function middleware ( request: NextRequest )
     }
 
     const isAuthenticated = Boolean( supabaseUser );
-
-    // ── Admin panel protection ──
-    if ( path.startsWith( '/admin' ) && path !== '/admin/login' )
-    {
-        const isAdmin = await verifyAdminSession( request.cookies.get( getAdminSessionCookieName() )?.value );
-        if ( !isAdmin )
-        {
-            const url = request.nextUrl.clone();
-            url.pathname = '/admin/login';
-            url.searchParams.set( 'redirect', path );
-            return NextResponse.redirect( url );
-        }
-    }
 
     // ── Account pages protection ──
     if ( !isAuthenticated && path.startsWith( '/account' ) )

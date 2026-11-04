@@ -337,6 +337,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                 method: initialData ? 'PUT' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify( rawData ),
+                signal: AbortSignal.timeout( 45000 ),
             } );
             if ( res.ok )
             {
@@ -347,9 +348,13 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                 alert( err.error || 'Could not save product.' );
                 setLoading( false );
             }
-        } catch
+        } catch ( error )
         {
-            alert( 'Network Error' );
+            alert(
+                error instanceof DOMException && error.name === 'TimeoutError'
+                    ? 'Saving took too long and the result is unknown. Check the product list before trying again to avoid creating a duplicate.'
+                    : 'Could not reach the product service. Check your connection and try again.'
+            );
             setLoading( false );
         }
     };

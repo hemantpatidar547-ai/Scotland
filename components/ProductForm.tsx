@@ -227,8 +227,12 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
     const submit = async ( e: FormEvent<HTMLFormElement> ) =>
     {
         e.preventDefault();
+        const form = e.currentTarget;
         setLoading( true );
-        const fd = new FormData( e.currentTarget );
+        const fd = new FormData( form );
+        const featured = ( form.querySelector( '#featured' ) as HTMLInputElement )?.checked;
+        const isNew = ( form.querySelector( '#new_arrival' ) as HTMLInputElement )?.checked;
+        const bestSeller = ( form.querySelector( '#best_seller' ) as HTMLInputElement )?.checked;
 
         const finalCategory = customCategory.trim() || selectedCategory;
         const finalSubcategory = customSubcategory.trim() || selectedSubcategory;
@@ -321,9 +325,9 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
 
             // Publishing
             status,
-            featured: ( e.currentTarget.querySelector( '#featured' ) as HTMLInputElement )?.checked,
-            isNew: ( e.currentTarget.querySelector( '#new_arrival' ) as HTMLInputElement )?.checked,
-            best_seller: ( e.currentTarget.querySelector( '#best_seller' ) as HTMLInputElement )?.checked,
+            featured,
+            isNew,
+            best_seller: bestSeller,
 
         };
 

@@ -81,6 +81,8 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
     const [ gallery, setGallery ] = useState<string[]>( ( initialData?.images || [] ).filter( image => image !== initialData?.image ) );
     const [ sizeChart, setSizeChart ] = useState<string | null>( initialData?.size_chart || null );
     const [ activeImageUploads, setActiveImageUploads ] = useState( 0 );
+    const activeImageUploadsRef = useRef( 0 );
+    const [ imageUploadStatus, setImageUploadStatus ] = useState<string | null>( null );
 
     // Variants
     const [ selectedSizes, setSelectedSizes ] = useState<string[]>( initialData?.sizes || [] );
@@ -109,13 +111,15 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
 
     const uploadImageFile = async ( file: File ): Promise<string> =>
     {
-        setActiveImageUploads( count => count + 1 );
+        activeImageUploadsRef.current += 1;
+        setActiveImageUploads( activeImageUploadsRef.current );
         try
         {
             return await uploadAdminImage( file );
         } finally
         {
-            setActiveImageUploads( count => Math.max( 0, count - 1 ) );
+            activeImageUploadsRef.current = Math.max( 0, activeImageUploadsRef.current - 1 );
+            setActiveImageUploads( activeImageUploadsRef.current );
         }
     };
 
@@ -134,13 +138,26 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
         const input = e.currentTarget;
         const files = Array.from( e.target.files || [] );
         input.value = '';
-        try
+        if ( !files.length ) return;
+
+        setImageUploadStatus( `Uploading ${ files.length } gallery image${ files.length === 1 ? '' : 's' }…` );
+        const results = await Promise.allSettled( files.map( uploadImageFile ) );
+        const uploaded = results.flatMap( result => result.status === 'fulfilled' ? [ result.value ] : [] );
+        const failedCount = results.length - uploaded.length;
+        if ( uploaded.length )
         {
-            const results = await Promise.all( files.map( uploadImageFile ) );
-            setGallery( prev => [ ...prev, ...results ] );
-        } catch ( error )
+            setGallery( prev => [ ...prev, ...uploaded ] );
+        }
+        if ( failedCount )
         {
-            alert( error instanceof Error ? error.message : 'Could not upload gallery images.' );
+            const firstFailure = results.find( result => result.status === 'rejected' );
+            const reason = firstFailure?.status === 'rejected' && firstFailure.reason instanceof Error
+                ? firstFailure.reason.message
+                : 'Check your connection and Supabase project settings.';
+            setImageUploadStatus( `${ uploaded.length } uploaded; ${ failedCount } failed. ${ reason }` );
+        } else
+        {
+            setImageUploadStatus( `${ uploaded.length } gallery image${ uploaded.length === 1 ? '' : 's' } uploaded.` );
         }
     };
 
@@ -216,7 +233,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
         const finalCategory = customCategory.trim() || selectedCategory;
         const finalSubcategory = customSubcategory.trim() || selectedSubcategory;
 
-        if ( activeImageUploads > 0 ) { alert( 'Wait for image uploads to finish before saving.' ); setLoading( false ); return; }
+        if ( activeImageUploadsRef.current > 0 ) { alert( 'Wait for image uploads to finish before saving.' ); setLoading( false ); return; }
         if ( !finalCategory ) { alert( 'Please select or enter a category.' ); setLoading( false ); return; }
         if ( !mainImage ) { alert( 'Please upload a main product image.' ); setLoading( false ); return; }
         if ( selectedSizes.length === 0 ) { alert( 'Please select at least one size.' ); setLoading( false ); return; }
@@ -530,6 +547,9 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
             {/* ── 4. Images ── */ }
             <SectionCard title="🖼️ Images">
                 <p className="text-xs leading-5 text-zinc-500">Images upload directly to Supabase Storage; this app does not impose a file-size cap. Your Supabase project’s Storage limit still applies.</p>
+                { ( imageUploadStatus || activeImageUploads > 0 ) && <p className="rounded border border-stone bg-stone-50 px-3 py-2 text-xs text-zinc-700" role="status" aria-live="polite">
+                    { activeImageUploads > 0 ? `Uploading ${ activeImageUploads } image${ activeImageUploads === 1 ? '' : 's' }…` : imageUploadStatus }
+                </p> }
                 {/* Main Image */ }
                 <div>
                     <p className="text-xs text-zinc-600 font-medium mb-2">Main Image *</p>
@@ -537,19 +557,21 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                         { mainImage
                             ? <img src={ mainImage } alt="Main" className="mx-auto h-36 object-contain rounded" />
                             : <span>Click to upload main image</span> }
-                        <input type="file" accept="image/*" className="hidden" onChange={ async e =>
+                        <input type="file" accept="image/*" className="sr-only" onChange={ async e =>
                         {
                             const input = e.currentTarget;
                             const f = e.target.files?.[ 0 ];
                             input.value = '';
                             if ( f )
                             {
+                                setImageUploadStatus( 'Uploading main image…' );
                                 try
                                 {
                                     setMainImage( await uploadImageFile( f ) );
+                                    setImageUploadStatus( 'Main image uploaded and ready to save.' );
                                 } catch ( error )
                                 {
-                                    alert( error instanceof Error ? error.message : 'Could not upload the main image.' );
+                                    setImageUploadStatus( error instanceof Error ? error.message : 'Could not upload the main image.' );
                                 }
                             }
                         } } />
@@ -569,7 +591,7 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                         ) ) }
                         <label className="h-20 w-20 border border-dashed border-stone rounded flex items-center justify-center text-2xl text-zinc-400 cursor-pointer hover:border-navy transition">
                             +
-                            <input type="file" multiple accept="image/*" className="hidden" onChange={ handleGallery } />
+                            <input type="file" multiple accept="image/*" className="sr-only" onChange={ handleGallery } />
                         </label>
                     </div>
                 </div>
@@ -581,19 +603,21 @@ export function ProductForm ( { initialData }: { initialData?: Product } )
                         { sizeChart
                             ? <img src={ sizeChart } alt="Size Chart" className="mx-auto h-24 object-contain rounded" />
                             : <span>Upload size chart (optional)</span> }
-                        <input type="file" accept="image/*" className="hidden" onChange={ async e =>
+                        <input type="file" accept="image/*" className="sr-only" onChange={ async e =>
                         {
                             const input = e.currentTarget;
                             const f = e.target.files?.[ 0 ];
                             input.value = '';
                             if ( f )
                             {
+                                setImageUploadStatus( 'Uploading size chart…' );
                                 try
                                 {
                                     setSizeChart( await uploadImageFile( f ) );
+                                    setImageUploadStatus( 'Size chart uploaded and ready to save.' );
                                 } catch ( error )
                                 {
-                                    alert( error instanceof Error ? error.message : 'Could not upload the size chart.' );
+                                    setImageUploadStatus( error instanceof Error ? error.message : 'Could not upload the size chart.' );
                                 }
                             }
                         } } />
